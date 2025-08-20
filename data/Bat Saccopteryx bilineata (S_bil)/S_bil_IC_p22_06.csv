@@ -1,4 +1,4 @@
-IOI,Data,Onset
+IOI,Data,onset
 0.0932,S_bil_IC_p22_06,0.1
 0.1238,S_bil_IC_p22_06,0.1932
 0.0952,S_bil_IC_p22_06,0.317
@@ -11,3 +11,4 @@ IOI,Data,Onset
 0.0865,S_bil_IC_p22_06,0.9586
 0.1025,S_bil_IC_p22_06,1.0451
 0.0899,S_bil_IC_p22_06,1.1476
+,,1.2375

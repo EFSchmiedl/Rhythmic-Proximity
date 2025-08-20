@@ -11,11 +11,15 @@ REPEATS = 10
 BASE_OUTPUT_DIR = 'data/theoretical_sequences'
 INITIAL_ONSET = 0.1
 
+# === Seed für Reproduzierbarkeit ===
+np.random.seed(42)
+
 # === Heterochrone Muster ===
 HETERO_PATTERNS = {
     "heterochron-1-2": [1, 2],
     "heterochron-1-4": [1, 4],
     "heterochron-1-3-2": [1, 3, 2],
+    "heterochron-2-3": [2, 3],
     "heterochron-triplet": [1, 1, 2],
     "heterochron-irregular": None
 }
