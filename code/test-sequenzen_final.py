@@ -5,10 +5,10 @@ from scipy.stats import truncnorm
 
 # === Konfiguration ===
 BASE_IOI_LIST = [0.4, 0.5, 0.6, 1.0]
-BEAT_COUNTS = [20] 
+BEAT_COUNTS = [6, 20, 100] 
 JITTER_STD_LIST = [0.001, 0.005, 0.01, 0.05, 0.1]
 REPEATS = 10
-BASE_OUTPUT_DIR = 'data/theoretical_sequences'
+BASE_OUTPUT_DIR = 'data/theoretical_sequences1'
 INITIAL_ONSET = 0.1
 
 # === Seed für Reproduzierbarkeit ===
@@ -16,12 +16,12 @@ np.random.seed(42)
 
 # === Heterochrone Muster ===
 HETERO_PATTERNS = {
-    "heterochron-1-2": [1, 2],
-    "heterochron-1-4": [1, 4],
-    "heterochron-1-3-2": [1, 3, 2],
-    "heterochron-2-3": [2, 3],
-    "heterochron-triplet": [1, 1, 2],
-    "heterochron-irregular": None
+    "heterochrony-1-2": [1, 2],
+    "heterochrony-1-4": [1, 4],
+    "heterochrony-1-3-2": [1, 3, 2],
+    "heterochrony-2-3": [2, 3],
+    "heterochrony-triplet": [1, 1, 2],
+    "heterochrony-irregular": None
 }
 
 # === Hilfsfunktionen ===
@@ -104,7 +104,7 @@ for base_ioi in BASE_IOI_LIST:
 
         # --- Random
         for i in range(REPEATS):
-            iois = np.random.uniform(0.2, 1.0, size=num_beats)
+            iois = np.random.uniform(0.1, 1.0, size=num_beats)
             save_sequence(iois, base_ioi, num_beats, "random", i+1)
 
         # --- Accelerando / Ritardando / Drift
@@ -113,7 +113,11 @@ for base_ioi in BASE_IOI_LIST:
         save_sequence(base_ioi + np.linspace(0, 0.5, num_beats), base_ioi, num_beats, "isochron_drift")
 
         # --- Tempo-Shifts (alle Jitter-STD)
-        base_factors = [1.0, 0.5, 1.5, (1 / 3), (2 / 3), (4 / 3), (5 / 3)]
+        base_factors = [(1 / 2), (2 / 1),   
+                        (1 / 3), (3 / 1),    
+                        (1 / 4), (4 / 1),   
+                        (2 / 3), (3 / 2),
+                        (3 / 4), (4 / 3)]
 
         for std in JITTER_STD_LIST:
             label = f"{int(std * 1000):04d}"
@@ -130,13 +134,13 @@ for base_ioi in BASE_IOI_LIST:
                 iois += truncated_jitter(num_beats, std=std)
                 save_sequence(iois, base_ioi, num_beats, f"tempo_shift_both-jitter-{label}", i+1)
 
-                # Nur Tempo-Jitter
+                # Nur Tempo-Jitter (±5% Variation auf Tempo-Änderung)
                 iois = np.full(num_beats, base_ioi)
                 for s in range(num_sections):
                     start, end = section_bounds[s], section_bounds[s + 1]
                     factor = np.random.choice(base_factors) * np.random.uniform(0.95, 1.05)
                     iois[start:end] = base_ioi * factor
-                save_sequence(iois, base_ioi, num_beats, f"tempo_shift_onlytempo-jitter-{label}", i+1)
+                save_sequence(iois, base_ioi, num_beats, f"tempo_shift_onlytempo-jitter-5percent", i+1)
 
                 # Nur IOI-Jitter
                 iois = np.full(num_beats, base_ioi)
