@@ -46,14 +46,14 @@ for base_ioi in BASE_IOI_LIST:
 
         # --- Isochron (perfekt)
         iois = np.full(num_beats, base_ioi)
-        save_sequence(iois, base_ioi, num_beats, "isochron")
+        save_sequence(iois, base_ioi, num_beats, "isochrony")
 
         # --- Isochron + Jitter
         for std in JITTER_STD_LIST:
             label = f"{int(std * 1000):04d}"
             for i in range(REPEATS):
                 jitter_iois = base_ioi + truncated_jitter(num_beats, std)
-                save_sequence(jitter_iois, base_ioi, num_beats, f"isochron_jitter-{label}", i+1)
+                save_sequence(jitter_iois, base_ioi, num_beats, f"isochrony_jitter-{label}", i+1)
 
         # --- Drittelweise Jitter (start, middle, end)
         for std in JITTER_STD_LIST:
