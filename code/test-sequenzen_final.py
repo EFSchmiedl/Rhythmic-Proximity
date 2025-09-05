@@ -13,6 +13,7 @@ INITIAL_ONSET = 0.1
 
 # === Seed für Reproduzierbarkeit ===
 np.random.seed(42)
+rng = np.random.default_rng()
 
 # === Heterochrone Muster ===
 HETERO_PATTERNS = {
@@ -102,10 +103,16 @@ for base_ioi in BASE_IOI_LIST:
                     jittered = pattern_array + truncated_jitter(num_beats, std)
                     save_sequence(jittered, base_ioi, num_beats, f"{name}_jitter-{label}", i+1)
 
-        # --- Random
+        # --- Random-Uniform
         for i in range(REPEATS):
             iois = np.random.uniform(0.1, 1.0, size=num_beats)
-            save_sequence(iois, base_ioi, num_beats, "random", i+1)
+            save_sequence(iois, base_ioi, num_beats, "random_uniform", i+1)
+
+        # --- Random-Exponential 
+        for i in range(REPEATS):
+            iois = rng.exponential(scale=base_ioi, size=num_beats)
+            iois = np.clip(iois, 0.1, 2.0)   # Begrenzen auf [0.1, 2.0]
+            save_sequence(iois, base_ioi, num_beats, "random_exponential", i+1)
 
         # --- Accelerando / Ritardando / Drift
         save_sequence(base_ioi * np.linspace(1.5, 0.3, num_beats), base_ioi, num_beats, "accelerando")
