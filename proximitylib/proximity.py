@@ -14,104 +14,118 @@ from math import gcd
 import matplotlib.gridspec as gridspec
 from matplotlib.gridspec import GridSpecFromSubplotSpec
 from tabulate import tabulate
+from scipy.stats import gaussian_kde
 
-def proximity_max_freq_gaussian(
+# =============================
+# 0) Parametersets
+# =============================
+
+param_sets = {
+    "iso": dict(
+    sharpness_base=6.0, sharpness_growth=0.0, decay=0.0,
+    max_freq=1, x_max=1, weight_exponent=0.0, freq_sharpness_exp=0.0,
+    output_max=1.0, threshold=0.01
+),
+    1: dict(
+    sharpness_base=6.0, sharpness_growth=0.1, decay=0.1,
+    max_freq=1, x_max=None, weight_exponent=0.0, freq_sharpness_exp=0.0,
+    output_max=1, threshold=0.01
+),
+    2: dict(
+    sharpness_base=10.0, sharpness_growth=0.1, decay=0.1,
+    max_freq=2, x_max=None, weight_exponent=0.0, freq_sharpness_exp=1.0,
+    output_max=1, threshold=0.01
+),
+    3: dict(
+    sharpness_base=14.0, sharpness_growth=0.1, decay=0.1,
+    max_freq=3, x_max=None, weight_exponent=0.0, freq_sharpness_exp=1.2,
+    output_max=1, threshold=0.01
+),
+    4: dict(
+    sharpness_base=14.0, sharpness_growth=0.1, decay=0.1,
+    max_freq=4, x_max=None, weight_exponent=0.0, freq_sharpness_exp=1.5,
+    output_max=1, threshold=0.01
+)
+}
+
+# =============================
+
+def proximity_max_freq_gaussian_table(
     x,
     sharpness_base=10.0,
     sharpness_growth=1.0,
     decay=0.1,
     max_freq=4,
+    x_max=None,
     weight_exponent=1.0,
     freq_sharpness_exp=1.0,
-    neighbor_peaks=2,   # wie viele Peaks links+rechts von x getestet werden
-    norm_x=1.0,
-    output_max=1.0
+    output_max=1.0,
+    threshold=0.01,
 ):
-    """
-    Optimierte Gaussian-Proximity-Funktion:
-    - prüft nur die Ratio-Peaks, die in der Nähe von x liegen (k/f ± neighbor_peaks)
-    - x: Skalar oder Array
-    - Rückgabe: Array gleicher Form
-    """
     x = np.array(x, dtype=float)
-    all_freq_values = []
+    if x_max is None:
+        x_max = int(np.ceil(np.max(x)))
+    N = len(x)
+    result = np.zeros(N)
+    best_frac = [(0, 0)] * N
 
     for f in range(1, max_freq + 1):
-        weight = 1.0 / (f ** weight_exponent)
-        gauss_max = np.zeros_like(x, dtype=float)
+        k_vals = np.arange(f, x_max * f + 1)
+        mu_all = k_vals / f
+        sharpness_f = sharpness_base * (f ** freq_sharpness_exp)
+        sigma_all = 1.0 / (sharpness_f * (k_vals ** sharpness_growth) + 1e-9)
+        weight_f = 1.0 / (f ** weight_exponent)
+        mu_decay_all = 1.0 / (mu_all ** decay)
 
-        # nächstliegender Peak-Index zu jedem x
-        k_center = np.round(x * f).astype(int)
+        diff = x[:, None] - mu_all[None, :]
+        g = weight_f * mu_decay_all[None, :] * np.exp(-0.5 * (diff / sigma_all[None, :])**2)
+        best_idx = np.argmax(g, axis=1)
+        best_val = g[np.arange(N), best_idx]
+        update_idx = best_val > result
+        result[update_idx] = best_val[update_idx]
+        for idx in np.where(update_idx)[0]:
+            best_frac[idx] = (int(k_vals[best_idx[idx]]), f)
 
-        for offset in range(-neighbor_peaks, neighbor_peaks + 1):
-            k = k_center + offset
-            valid = k > 0  # negative oder 0 Peaks sind Unsinn
-
-            if not np.any(valid):
-                continue
-
-            mu = k[valid] / f
-            sharpness = sharpness_base * (f ** freq_sharpness_exp) * (k[valid] ** sharpness_growth)
-            sigma = 1.0 / (sharpness + 1e-9)
-            mu_decay = 1.0 / (mu ** decay)
-
-            # Broadcasting über alle validen Peaks
-            g = np.exp(-0.5 * ((x[..., None] - mu[None, ...]) / sigma[None, ...]) ** 2)
-            contrib = weight * mu_decay * g
-
-            # Max über Peaks in Nachbarschaft
-            gauss_max = np.maximum(gauss_max, np.max(contrib, axis=-1))
-
-        all_freq_values.append(gauss_max)
-
-    result = np.maximum.reduce(all_freq_values)
-
-    # Normierung
-    max_at_norm_x = np.max([
-        (1.0 / (f ** weight_exponent))
-        for f in range(1, max_freq + 1)
-    ])
-    return result / (max_at_norm_x + 1e-9) * output_max
+    if result.max() > 0:
+        result /= result.max()
+    result *= output_max
+    result[result < threshold] = threshold
+    return result, best_frac
 
 def build_pairwise_proximity_df(iois, params, threshold=0.01):
     n = len(iois)
-    ratios = np.array([[max(iois[i], iois[j]) / min(iois[i], iois[j]) 
-                        for j in range(n)] for i in range(n)])
-    prox_max = proximity_max_freq_gaussian(ratios, **params)
-
-    rows = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            r = float(ratios[i, j])
-            s = float(prox_max[i, j])
-            if s > threshold:
-                # Bestes f und k rekonstruieren
-                best_f = None
-                best_frac = None
-                best_diff = np.inf
-                for f in range(1, params["max_freq"] + 1):
-                    k = round(r * f)
-                    frac = Fraction(k, f).limit_denominator()
-                    diff = abs(r - k / f)
-                    if diff < best_diff:
-                        best_diff = diff
-                        best_frac = frac
-                        best_f = f
-                label = f"{best_frac.numerator}/{best_frac.denominator}"
-            else:
-                label = "Keine Proximity"
-
-            rows.append({
-                "i": i,
-                "j": j,
-                "ioi_i": float(iois[i]),
-                "ioi_j": float(iois[j]),
-                "ratio": r,
-                "proximity": s,
-                "peak_label": label
-            })
-
-    df_pairs = pd.DataFrame(rows)
+    
+    # --- 1) Ratio-Matrix berechnen ---
+    ratios = np.ones((n, n), dtype=float)  # Diagonale = 1
+    i_idx, j_idx = np.triu_indices(n, k=1)
+    ratios[i_idx, j_idx] = np.maximum(iois[i_idx], iois[j_idx]) / np.minimum(iois[i_idx], iois[j_idx])
+    ratios[j_idx, i_idx] = ratios[i_idx, j_idx]  # untere Dreiecksmatrix spiegeln
+    
+    # --- 2) Proximity-Matrix berechnen ---
+    ratios_flat = ratios.flatten()
+    prox_flat, best_frac_flat = proximity_max_freq_gaussian_table(ratios_flat, **params)
+    prox_max = prox_flat.reshape(n, n)
+    
+    # --- 3) Peak-Labels erstellen ---
+    peak_labels = np.full((n, n), "Keine Proximity", dtype=object)
+    for idx, val in enumerate(prox_flat):
+        if val > threshold:
+            i, j = divmod(idx, n)
+            k_val, f_val = best_frac_flat[idx]
+            frac = Fraction(k_val, f_val).limit_denominator()
+            peak_labels[i, j] = f"{frac.numerator}/{frac.denominator}"
+    
+    # --- 4) DataFrame erstellen ---
+    df_pairs = pd.DataFrame({
+        "i": np.repeat(np.arange(n), n),
+        "j": np.tile(np.arange(n), n),
+        "ioi_i": np.repeat(iois, n),
+        "ioi_j": np.tile(iois, n),
+        "ratio": ratios.flatten(),
+        "prox_value": prox_flat,
+        "peak_label": peak_labels.flatten()
+    })
+    
     return df_pairs, ratios, prox_max
 
 def analyze_single_sequence(iois, params, num_sequences=1000, seed=42, bins=50, plot=True):
@@ -131,7 +145,8 @@ def analyze_single_sequence(iois, params, num_sequences=1000, seed=42, bins=50, 
     # -----------------------------
     ratios_real = np.array([[max(iois[i], iois[j])/min(iois[i], iois[j]) 
                              for j in range(sequence_length)] for i in range(sequence_length)])
-    prox_mat_real = proximity_max_freq_gaussian(ratios_real, **params)
+    prox_mat_real, _ = proximity_max_freq_gaussian_table(ratios_real.flatten(), **params)
+    prox_mat_real = prox_mat_real.reshape(ratios_real.shape)
     triu_idx = np.triu_indices_from(prox_mat_real, k=1)
     proximity_real = prox_mat_real[triu_idx]
     median_real = np.median(proximity_real)
@@ -145,7 +160,8 @@ def analyze_single_sequence(iois, params, num_sequences=1000, seed=42, bins=50, 
         sim_iois = rng.exponential(scale=mean_ioi, size=sequence_length)
         ratios = np.array([[max(sim_iois[i], sim_iois[j])/min(sim_iois[i], sim_iois[j]) 
                             for j in range(sequence_length)] for i in range(sequence_length)])
-        prox_mat = proximity_max_freq_gaussian(ratios, **params)
+        prox_mat, _ = proximity_max_freq_gaussian_table(ratios.flatten(), **params)
+        prox_mat = prox_mat.reshape(ratios.shape)
         vals = prox_mat[triu_idx]
         proximity_expon_all.append(vals)
         medians_expon.append(np.median(vals))
@@ -165,7 +181,8 @@ def analyze_single_sequence(iois, params, num_sequences=1000, seed=42, bins=50, 
         sim_iois = rng.uniform(0.01, max_ioi, size=sequence_length)
         ratios = np.array([[max(sim_iois[i], sim_iois[j])/min(sim_iois[i], sim_iois[j]) 
                             for j in range(sequence_length)] for i in range(sequence_length)])
-        prox_mat = proximity_max_freq_gaussian(ratios, **params)
+        prox_mat, _ = proximity_max_freq_gaussian_table(ratios.flatten(), **params)
+        prox_mat = prox_mat.reshape(ratios.shape)
         vals = prox_mat[triu_idx]
         proximity_uniform_all.append(vals)
         medians_uniform.append(np.median(vals))
@@ -239,6 +256,9 @@ def analyze_single_sequence(iois, params, num_sequences=1000, seed=42, bins=50, 
         "results": results
     }
 
+# =============================
+# BEATFINDING FUNCTIONS
+# =============================
 def round_to_resolution(x, resolution):
     return round(x / resolution) * resolution
 
@@ -280,7 +300,7 @@ def generate_beat_candidates_from_iois(iois, resolution=0.001, max_denominator=2
 
 def score_for_beat(beat, iois, params):
     ratios = np.maximum(iois, beat) / np.minimum(iois, beat)
-    prox_vals = proximity_max_freq_gaussian(ratios, **params)
+    prox_vals, _ = proximity_max_freq_gaussian_table(ratios, **params)
     return float(np.mean(prox_vals))
 
 def find_local_maxima(candidates, scores, order=2):
@@ -328,51 +348,6 @@ def compute_beat_rmse(onsets, beat_period, resolution=0.001):
             best_beats = beats
 
     return best_shift, best_rmse, best_beats
-
-# =============================
-# 1) Gaussian-based Proximity-Funktion (Vektorisiert)
-# =============================
-def proximity_max_freq_gaussian_table(
-    x,
-    sharpness_base=10.0,
-    sharpness_growth=1.0,
-    decay=0.1,
-    max_freq=4,
-    x_max=None,
-    weight_exponent=1.0,
-    freq_sharpness_exp=1.0,
-    output_max=1.0,
-    threshold=0.01,
-):
-    x = np.array(x, dtype=float)
-    if x_max is None:
-        x_max = int(np.ceil(np.max(x)))
-    N = len(x)
-    result = np.zeros(N)
-    best_frac = [(0, 0)] * N
-
-    for f in range(1, max_freq + 1):
-        k_vals = np.arange(f, x_max * f + 1)
-        mu_all = k_vals / f
-        sharpness_f = sharpness_base * (f ** freq_sharpness_exp)
-        sigma_all = 1.0 / (sharpness_f * (k_vals ** sharpness_growth) + 1e-9)
-        weight_f = 1.0 / (f ** weight_exponent)
-        mu_decay_all = 1.0 / (mu_all ** decay)
-
-        diff = x[:, None] - mu_all[None, :]
-        g = weight_f * mu_decay_all[None, :] * np.exp(-0.5 * (diff / sigma_all[None, :])**2)
-        best_idx = np.argmax(g, axis=1)
-        best_val = g[np.arange(N), best_idx]
-        update_idx = best_val > result
-        result[update_idx] = best_val[update_idx]
-        for idx in np.where(update_idx)[0]:
-            best_frac[idx] = (int(k_vals[best_idx[idx]]), f)
-
-    if result.max() > 0:
-        result /= result.max()
-    result *= output_max
-    result[result < threshold] = threshold
-    return result, best_frac
 
 # =============================
 # 2) Nullmodelle generieren
@@ -566,11 +541,58 @@ def print_peak_table(df, title=None):
         print(f"\n{title}\n" + "="*len(title))
     print(tabulate(df, headers="keys", tablefmt="fancy_grid", showindex=False, floatfmt=".4f"))
 
-# =============================
-# 7) Beispiel-Aufruf
-# =============================
-default_params_table = dict(
-    sharpness_base=14.0, sharpness_growth=0.0, decay=0.0,
-    max_freq=4, x_max=10, weight_exponent=0.0, freq_sharpness_exp=1.5,
-    output_max=1.0, threshold=0.01
-)
+def plot_proximity_max_freq_gaussian(
+    sharpness_base=12.0,
+    sharpness_growth=0.5,
+    decay=0.2,
+    max_freq=3,
+    x_max=4.0,
+    weight_exponent=0.5,
+    freq_sharpness_exp=0.5,
+):
+    x_vals = np.linspace(1, x_max + 0.5, 2000)
+    y_vals, _ = proximity_max_freq_gaussian_table(
+        x_vals,
+        sharpness_base=sharpness_base,
+        sharpness_growth=sharpness_growth,
+        decay=decay,
+        max_freq=max_freq,
+        x_max=x_max,
+        weight_exponent=weight_exponent,
+        freq_sharpness_exp=freq_sharpness_exp,
+    )
+
+    mean_prox = simpson(y_vals, x=x_vals) / (x_vals[-1] - x_vals[0])
+
+    fig, axes = plt.subplots(1, 2, figsize=(18, 6))
+    fig.suptitle("Optimized Gaussian Proximity Function", fontsize=16, y=1.02)
+
+    axes[0].plot(x_vals, y_vals, label=f"Proximity (∫mean ≈ {mean_prox:.3f})")
+    axes[0].axhline(mean_prox, color='red', linestyle='--', linewidth=2, label=f"∫mean ≈ {mean_prox:.3f}")
+    axes[0].set_xlabel("Ratio x")
+    axes[0].set_ylabel("Proximity")
+    axes[0].set_title("Proximity Function")
+    axes[0].set_ylim(0, 1.05)
+    axes[0].grid(True, linestyle="--", alpha=0.3)
+    axes[0].legend()
+
+    counts, _, _ = axes[1].hist(y_vals, bins=50, range=(0, 1), alpha=0.4, color="skyblue", density=True)
+    try:
+        kde = gaussian_kde(y_vals)
+        x_dens = np.linspace(0, 1, 5000)
+        kde_vals = kde(x_dens)
+        scaling_factor = max(counts) / max(kde_vals)
+        axes[1].plot(x_dens, kde_vals * scaling_factor, color="darkblue", lw=2, label="Density (KDE)")
+    except np.linalg.LinAlgError:
+        print("KDE konnte nicht berechnet werden (konstante Werte?)")
+
+    axes[1].axvline(mean_prox, color='red', linestyle='--', linewidth=2, label=f"∫mean ≈ {mean_prox:.3f}")
+    axes[1].set_title("Proximity Distribution")
+    axes[1].set_xlabel("Proximity")
+    axes[1].set_ylabel("Normalized frequency")
+    axes[1].legend()
+    axes[1].grid(True, linestyle="--", alpha=0.3)
+
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.90)
+    plt.show()
