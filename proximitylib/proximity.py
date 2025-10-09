@@ -1,4 +1,8 @@
-# proximity.py (die libary)
+# proximitylib/proximity.py
+
+# =============================
+# Imports
+# =============================
 
 import pandas as pd
 import numpy as np
@@ -17,11 +21,11 @@ from tabulate import tabulate
 from scipy.stats import gaussian_kde
 
 # =============================
-# 0) Parametersets
+# 0) Parameter sets
 # =============================
 
 param_sets = {
-    "iso": dict(
+    0: dict(
     sharpness_base=6.0, sharpness_growth=0.0, decay=0.0,
     max_freq=1, x_max=1, weight_exponent=0.0, freq_sharpness_exp=0.0,
     output_max=1.0, threshold=0.01
@@ -49,7 +53,8 @@ param_sets = {
 }
 
 # =============================
-
+# 1) Proximity-Function
+# =============================
 def proximity_max_freq_gaussian_table(
     x,
     sharpness_base=10.0,
@@ -92,6 +97,53 @@ def proximity_max_freq_gaussian_table(
     result[result < threshold] = threshold
     return result, best_frac
 
+# =============================
+# 2) Generate Null Sequences
+# =============================
+def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform"), seed=42):
+    """
+    Erstellt Nullsequenzen basierend auf den gegebenen IOIs und den gewählten Nullmodellen.
+
+    Parameters
+    ----------
+    iois : array-like
+        Input-Inter-Onset-Interval-Sequenz.
+    num_sequences : int
+        Anzahl der zu erzeugenden Nullsequenzen pro Modell.
+    models : tuple of str
+        Liste der gewünschten Nullmodelle. Mögliche Werte:
+        ("expon", "uniform", "empirical")
+    seed : int
+        Zufallsstartwert.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        Dictionary mit Einträgen {modellname: array[num_sequences, len(iois)]}
+    """
+    rng = np.random.default_rng(seed)
+    iois = np.asarray(iois, dtype=float)
+    n = len(iois)
+    max_ioi, mean_ioi = np.max(iois), np.mean(iois)
+
+    null_sequences = {}
+    for model in models:
+        if model == "expon":
+            sims = rng.exponential(scale=mean_ioi, size=(num_sequences, n))
+        elif model == "uniform":
+            sims = rng.uniform(0.01, max_ioi, size=(num_sequences, n))
+        elif model == "empirical":
+            sims = rng.choice(iois, size=(num_sequences, n), replace=True)
+        else:
+            raise ValueError(f"Unbekanntes Nullmodell: {model}")
+        null_sequences[model] = sims
+
+    return null_sequences
+
+# =============================
+# A) FUNCTIONS FOR SINGLE SEQUENCE ANALYSIS 
+# (Called from catalogue.py)
+# =============================
 def build_pairwise_proximity_df(iois, params, threshold=0.01):
     n = len(iois)
     
@@ -128,97 +180,93 @@ def build_pairwise_proximity_df(iois, params, threshold=0.01):
     
     return df_pairs, ratios, prox_max
 
-def analyze_single_sequence(iois, params, num_sequences=1000, seed=42, bins=50, plot=True):
+def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "uniform"),
+                             seed=42, bins=50, plot=True):
     """
-    Analysiert eine einzelne IOI-Sequenz gegen zwei Nullmodelle (Exponential, Uniform)
-    und erstellt Histogramm mit Mean, 95%-Quantilen, Z-Score und p-Wert.
-    
+    Analysiert eine einzelne IOI-Sequenz gegen gewählte Nullmodelle
+    (z. B. Exponential, Uniform, Empirical) und erstellt Histogramm mit
+    Mean, 95%-Quantilen, Z-Score und p-Wert.
+
     Rückgabe: dict mit realen Proximity-Paaren, Nullmodellen und Statistik.
     """
     rng = np.random.default_rng(seed)
+    iois = np.asarray(iois, dtype=float)
     sequence_length = len(iois)
-    max_ioi = float(np.max(iois))
-    mean_ioi = float(np.mean(iois))
-    
+    if sequence_length < 2:
+        raise ValueError("Die IOI-Sequenz muss mindestens 2 Elemente enthalten.")
+
     # -----------------------------
     # Reale Proximity-Paare
     # -----------------------------
-    ratios_real = np.array([[max(iois[i], iois[j])/min(iois[i], iois[j]) 
-                             for j in range(sequence_length)] for i in range(sequence_length)])
+    ratios_real = np.maximum(iois[:, None], iois[None, :]) / np.minimum(iois[:, None], iois[None, :])
     prox_mat_real, _ = proximity_max_freq_gaussian_table(ratios_real.flatten(), **params)
     prox_mat_real = prox_mat_real.reshape(ratios_real.shape)
     triu_idx = np.triu_indices_from(prox_mat_real, k=1)
     proximity_real = prox_mat_real[triu_idx]
     median_real = np.median(proximity_real)
-    
+
     # -----------------------------
-    # Nullmodell: Exponential
+    # Nullsequenzen erzeugen
     # -----------------------------
-    medians_expon = []
-    proximity_expon_all = []
-    for _ in range(num_sequences):
-        sim_iois = rng.exponential(scale=mean_ioi, size=sequence_length)
-        ratios = np.array([[max(sim_iois[i], sim_iois[j])/min(sim_iois[i], sim_iois[j]) 
-                            for j in range(sequence_length)] for i in range(sequence_length)])
-        prox_mat, _ = proximity_max_freq_gaussian_table(ratios.flatten(), **params)
-        prox_mat = prox_mat.reshape(ratios.shape)
-        vals = prox_mat[triu_idx]
-        proximity_expon_all.append(vals)
-        medians_expon.append(np.median(vals))
-    proximity_expon_all = np.concatenate(proximity_expon_all)
-    median_expon = np.mean(medians_expon)
-    std_expon = np.std(medians_expon, ddof=1)
-    zscore_expon = (median_real - median_expon) / (std_expon + 1e-12)
-    pval_expon = (np.sum(np.array(medians_expon) >= median_real) + 1) / (num_sequences + 1)
-    quant95_expon = np.percentile(medians_expon, 95)
-    
+    null_sequences = generate_null_sequences(iois, num_sequences=num_sequences,
+                                             models=models, seed=seed)
+
+    stats = {}
+    proximities = {}
+    medians = {}
+
+    for model, sims in null_sequences.items():
+        model_medians = []
+        all_vals = []
+        for sim_iois in sims:
+            ratios = np.maximum(sim_iois[:, None], sim_iois[None, :]) / np.minimum(sim_iois[:, None], sim_iois[None, :])
+            prox_mat, _ = proximity_max_freq_gaussian_table(ratios.flatten(), **params)
+            prox_mat = prox_mat.reshape(ratios.shape)
+            vals = prox_mat[triu_idx]
+            all_vals.append(vals)
+            model_medians.append(np.median(vals))
+        all_vals = np.concatenate(all_vals)
+        proximities[model] = all_vals
+        medians[model] = np.array(model_medians)
+
+        mean_median = np.mean(model_medians)
+        std_median = np.std(model_medians, ddof=1)
+        zscore = (median_real - mean_median) / (std_median + 1e-12)
+        pval = (np.sum(medians[model] >= median_real) + 1) / (num_sequences + 1)
+        quant95 = np.percentile(medians[model], 95)
+
+        stats[model] = dict(
+            median_null=mean_median,
+            std_null=std_median,
+            zscore=zscore,
+            pval=pval,
+            quant95=quant95,
+        )
+
     # -----------------------------
-    # Nullmodell: Uniform
-    # -----------------------------
-    medians_uniform = []
-    proximity_uniform_all = []
-    for _ in range(num_sequences):
-        sim_iois = rng.uniform(0.01, max_ioi, size=sequence_length)
-        ratios = np.array([[max(sim_iois[i], sim_iois[j])/min(sim_iois[i], sim_iois[j]) 
-                            for j in range(sequence_length)] for i in range(sequence_length)])
-        prox_mat, _ = proximity_max_freq_gaussian_table(ratios.flatten(), **params)
-        prox_mat = prox_mat.reshape(ratios.shape)
-        vals = prox_mat[triu_idx]
-        proximity_uniform_all.append(vals)
-        medians_uniform.append(np.median(vals))
-    proximity_uniform_all = np.concatenate(proximity_uniform_all)
-    median_uniform = np.mean(medians_uniform)
-    std_uniform = np.std(medians_uniform, ddof=1)
-    zscore_uniform = (median_real - median_uniform) / std_uniform if std_uniform > 0 else np.nan
-    pval_uniform = (np.sum(np.array(medians_uniform) >= median_real) + 1) / (num_sequences + 1)
-    quant95_uniform = np.percentile(medians_uniform, 95)
-    
-    # -----------------------------
-    # Plot
+    # Plot (optional)
     # -----------------------------
     if plot:
-        plt.figure(figsize=(12,6))
-        colors = {"Real": "blue", "Expon": "orange", "Uniform": "gray"}
-        
-        # Gemeinsamer Wertebereich über beide Nullmodelle
-        all_nulls = np.concatenate([medians_expon, medians_uniform])
-        bin_edges = np.linspace(np.min(all_nulls), np.max(all_nulls), bins+1)
+        plt.figure(figsize=(12, 6))
+        colors = {"Real": "blue", "expon": "orange", "uniform": "gray", "empirical": "green"}
+        all_nulls = np.concatenate([v for v in medians.values()])
+        bin_edges = np.linspace(np.min(all_nulls), np.max(all_nulls), bins + 1)
 
         plt.hist(proximity_real, bins=bin_edges, density=True, alpha=0.5, color=colors["Real"], label="Real")
-        plt.hist(medians_expon, bins=bin_edges, density=True, alpha=0.3, color=colors["Expon"], label="Mediane von Exponential Null")
-        plt.hist(medians_uniform, bins=bin_edges, density=True, alpha=0.3, color=colors["Uniform"], label="Mediane von Uniform Null")
-        
         sns.kdeplot(proximity_real, bw_adjust=0.5, color=colors["Real"], linewidth=2)
-        sns.kdeplot(medians_expon, bw_adjust=0.5, color=colors["Expon"], linewidth=2)
-        sns.kdeplot(medians_uniform, bw_adjust=0.5, color=colors["Uniform"], linewidth=2)
-    
-        # Mittelwerte & 95%-Quantile
-        plt.axvline(median_real, color=colors["Real"], linestyle="--", linewidth=2, label=f"Real Median ≈ {median_real:.3f}")
-        plt.axvline(median_expon, color=colors["Expon"], linestyle="--", linewidth=2, label=f"Expon Mean ≈ {median_expon:.3f}")
-        plt.axvline(quant95_expon, color=colors["Expon"], linestyle=":", linewidth=2, label=f"Expon 95%-Quantil ≈ {quant95_expon:.3f}")
-        plt.axvline(median_uniform, color=colors["Uniform"], linestyle="--", linewidth=2, label=f"Uniform Mean ≈ {median_uniform:.3f}")
-        plt.axvline(quant95_uniform, color=colors["Uniform"], linestyle=":", linewidth=2, label=f"Uniform 95%-Quantil ≈ {quant95_uniform:.3f}")
-        
+
+        for model in models:
+            plt.hist(medians[model], bins=bin_edges, density=True, alpha=0.3, color=colors[model],
+                     label=f"{model.capitalize()} Null (Mediane)")
+            sns.kdeplot(medians[model], bw_adjust=0.5, color=colors[model], linewidth=2)
+
+            plt.axvline(stats[model]["median_null"], color=colors[model], linestyle="--", linewidth=2,
+                        label=f"{model} Mean ≈ {stats[model]['median_null']:.3f}")
+            plt.axvline(stats[model]["quant95"], color=colors[model], linestyle=":", linewidth=2,
+                        label=f"{model} 95%-Quantil ≈ {stats[model]['quant95']:.3f}")
+
+        plt.axvline(median_real, color=colors["Real"], linestyle="--", linewidth=2,
+                    label=f"Real Median ≈ {median_real:.3f}")
         plt.xlabel("Proximity-Werte")
         plt.ylabel("Dichte")
         plt.title("Proximity-Paare: Real vs. Nullmodelle")
@@ -227,38 +275,26 @@ def analyze_single_sequence(iois, params, num_sequences=1000, seed=42, bins=50, 
         plt.xlim(0, 1)
         plt.tight_layout()
         plt.show()
-    
-    # -----------------------------
-    # Ergebnisse zurückgeben
-    # -----------------------------
-    results = {
-        "median_real": median_real,
-        "median_expon": median_expon,
-        "std_expon": std_expon,
-        "zscore_expon": zscore_expon,
-        "pval_expon": pval_expon,
-        "median_uniform": median_uniform,
-        "std_uniform": std_uniform,
-        "zscore_uniform": zscore_uniform,
-        "pval_uniform": pval_uniform,
-        "quant95_expon": quant95_expon,
-        "quant95_uniform": quant95_uniform,
-    }
-    if plot:
+
         print("\n=== Ergebnisse ===")
-        for k, v in results.items():
-            print(f"{k}: {v:.4f}")
-        
+        for model, vals in stats.items():
+            print(f"\n{model.upper()}:")
+            for k, v in vals.items():
+                print(f"  {k}: {v:.4f}")
+
+    # -----------------------------
+    # Rückgabe
+    # -----------------------------
     return {
         "proximity_real": proximity_real,
-        "proximity_expon_all": proximity_expon_all,
-        "proximity_uniform_all": proximity_uniform_all,
-        "results": results
+        "null_proximities": proximities,
+        "null_medians": medians,
+        "results": {"median_real": median_real, **stats},
     }
 
-# =============================
-# BEATFINDING FUNCTIONS
-# =============================
+# ----------------------------
+# beat detection functions
+# ----------------------------
 def round_to_resolution(x, resolution):
     return round(x / resolution) * resolution
 
@@ -349,59 +385,342 @@ def compute_beat_rmse(onsets, beat_period, resolution=0.001):
 
     return best_shift, best_rmse, best_beats
 
-# =============================
-# 2) Nullmodelle generieren
-# =============================
-def build_null_ratios_table(n, model, rng, iois):
-    if model == "expon":
-        sim_iois = rng.exponential(scale=np.mean(iois), size=n)
-    elif model == "uniform":
-        sim_iois = rng.uniform(np.min(iois), np.max(iois), size=n)
-    elif model == "empirical":
-        sim_iois = rng.choice(iois, size=n, replace=True)
-    triu_idx = np.triu_indices(n, k=1)
-    ratios = np.maximum(sim_iois[:, None], sim_iois[None, :]) / np.minimum(sim_iois[:, None], sim_iois[None, :])
-    return ratios[triu_idx]
+# ----------------------------
+# catalogue-layout (complete analysis + plotting)
+# ----------------------------
+def plot_sequence_analysis(
+    filename,
+    base_dir,
+    param_choice=1,
+    null_models=("expon", "uniform"),
+    num_sequences=200,
+    seed=42,
+    bins=25,
+    top_k=5,
+    figsize=(20, 28),
+    only_page=False,
+    safe_fig=False,
+    save_dir=None,
+):
+    """
+    Führt vollständige IOI-Analyse + Beat-Detektion + Nullmodell-Vergleich + Visualisierung durch.
+
+    Parameter
+    ----------
+    filename : str
+        Name der zu analysierenden CSV-Datei mit 'IOI' und 'onset'-Spalten.
+    base_dir : str | Path
+        Pfad zum Ordner, in dem die Datei liegt.
+    param_choice : int | str
+        Welches Parameterset aus `param_sets` verwendet werden soll (z. B. 1, 2, "iso").
+    null_models : list[str]
+        Liste der Nullmodelle, z. B. ["expon", "uniform", "empirical"].
+    num_sequences : int
+        Anzahl Nullsequenzen pro Modell.
+    seed : int
+        Zufallssamen für Reproduzierbarkeit.
+    bins : int
+        Anzahl der Bins für Histogramme.
+    top_k : int
+        Anzahl der anzuzeigenden Top-Beats.
+    figsize : tuple
+        Größe der Gesamtfigur.
+
+    Rückgabe
+    --------
+    results : dict
+        Ergebnisse aus analyze_single_sequence() + Beat-Analyse + Parameter-Infos.
+    """
+
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import numpy as np
+    import pandas as pd
+    from pathlib import Path
+    import matplotlib.gridspec as gridspec
+    from matplotlib.gridspec import GridSpecFromSubplotSpec
+
+    # === Parameter und Datei laden ===
+    path = Path(base_dir) / filename
+    if not path.exists():
+        raise FileNotFoundError(f"Datei nicht gefunden: {path.resolve()}")
+
+    df = pd.read_csv(path)
+    iois = df["IOI"].dropna().values
+    onsets = df["onset"].dropna().values
+
+    params = param_sets[param_choice]
+    print(f"\nVerwendetes Parameter-Dict: default_params_{param_choice}")
+
+    # === Pairwise Proximity ===
+    df_pairs, ratios, prox_max = build_pairwise_proximity_df(iois, params)
+    x_min = max(1.0, df_pairs["ratio"].min() * 0.95)
+    x_max = df_pairs["ratio"].max() * 1.05
+    x_range = np.linspace(x_min, x_max, 2000)
+    y_curve, _ = proximity_max_freq_gaussian_table(x_range, **params)
+    mean_prox = np.mean(y_curve)
+
+    pivot_vals = df_pairs.pivot(index="i", columns="j", values="prox_value") * 100
+    pivot_labels = df_pairs.pivot(index="i", columns="j", values="peak_label")
+
+    # === Farben für Peaks ===
+    unique_labels = sorted(set(df_pairs["peak_label"]))
+    tab10 = plt.cm.tab10.colors
+    fixed_colors = {
+        "1/1": tab10[0], "2/1": tab10[1], "3/1": tab10[2], "4/1": tab10[3], "5/1": tab10[4],
+        "1/2": tab10[5], "3/2": tab10[6], "5/2": tab10[7], "1/3": tab10[8], "2/3": tab10[9],
+        "4/3": (0.5, 0.0, 0.5)
+    }
+    label_to_cmap = {}
+    for label, color in fixed_colors.items():
+        if label in unique_labels:
+            cmap_colors = [(1, 1, 1), plt.cm.colors.to_rgb(color)]
+            label_to_cmap[label] = plt.cm.colors.LinearSegmentedColormap.from_list(f"{label}_cmap", cmap_colors)
+    remaining_labels = [lab for lab in unique_labels if lab not in label_to_cmap]
+    palette = sns.color_palette("Set2", len(remaining_labels))
+    for label, base_color in zip(remaining_labels, palette):
+        cmap_colors = [(1, 1, 1), base_color]
+        label_to_cmap[label] = plt.cm.colors.LinearSegmentedColormap.from_list(f"{label}_cmap", cmap_colors)
+
+    # === Nullmodell-Analyse ===
+    results = analyze_single_sequence(
+        iois,
+        params=params,
+        num_sequences=num_sequences,
+        seed=seed,
+        bins=bins,
+        plot=False,
+        models=null_models
+    )
+
+    # === Beatfinding ===
+    beat_candidates = generate_beat_candidates_from_iois(iois)
+    scores = [score_for_beat(beat, iois, params) for beat in beat_candidates]
+    local_maxima = find_local_maxima(beat_candidates, scores, order=5)
+    local_maxima_top = sorted(local_maxima, key=lambda x: -x[1])[:top_k]
+
+    # === Figure ===
+    fig = plt.figure(figsize=figsize)
+    gs = gridspec.GridSpec(7, 2, figure=fig, width_ratios=[1, 1],
+                           height_ratios=[0.5, 1, 1, 1, 1, 1, 1], hspace=0.5, wspace=0.3)
+
+    # === Header ===
+    ax_header = fig.add_subplot(gs[0, :])
+    ax_header.axis("off")
+    ax_header.text(0.01, 1.0, f"IOI-Analyse:\n{filename}", transform=ax_header.transAxes,
+                   fontsize=22, fontweight='bold', va='top', ha='left')
+
+    res = results["results"]
+    info_lines = [
+        f"IOI-Länge: {len(iois)} | min: {np.min(iois):.3f}, max: {np.max(iois):.3f}, Ø: {np.mean(iois):.3f}",
+        f"PAIR_THRESHOLD: {params['threshold']}",
+        f"Params: sharpness_base={params['sharpness_base']}, sharpness_growth={params['sharpness_growth']}, decay={params['decay']}",
+        f"max_freq={params['max_freq']}, weight_exponent={params['weight_exponent']}, freq_sharpness_exp={params['freq_sharpness_exp']}",
+        f"output_max={params['output_max']}",
+        f"Top-{top_k} Beats: " + ", ".join([f"{b:.3f}s ({s:.2f})" for b, s in local_maxima_top]),
+    ]
+    info_lines.append(f"Median Real: {res['median_real']:.3f}")
+    for model, vals in res.items():
+        if isinstance(vals, dict) and "median_null" in vals:
+            info_lines.append(
+                f"{model.capitalize()} → Median: {vals['median_null']:.3f} | "
+                f"Std: {vals['std_null']:.3f} | Z: {vals['zscore']:.3f} | "
+                f"p: {vals['pval']:.3f} | Q95: {vals['quant95']:.3f}"
+            )
+    ax_header.text(0.99, 1.0, "\n".join(info_lines),
+                   transform=ax_header.transAxes, fontsize=11, va='top', ha='right')
+
+    # === Proximity-Funktion ===
+    ax1 = fig.add_subplot(gs[1, :])
+    ax1.plot(x_range, y_curve, label=f"Proximity (mean ≈ {mean_prox:.3f})", alpha=0.5, color="grey")
+    ax1.scatter(df_pairs["ratio"], df_pairs["prox_value"], s=10, alpha=0.7, color="red", label="IOI-Verhältnisse")
+    ax1.set_xlim(x_min, x_max)
+    ax1.set_title("Proximity-Funktion mit IOI-Verhältnissen", fontweight='bold')
+    ax1.set_xlabel("Verhältnis")
+    ax1.set_ylabel("Proximity")
+    ax1.grid(True)
+    ax1.legend()
+
+
+    # === IOI-Verhältnis Verteilung ===
+    ax2 = fig.add_subplot(gs[2, :])
+    sns.kdeplot(df_pairs["ratio"], fill=True, color="green", alpha=0.5, lw=2, bw_adjust=0.1, ax=ax2)
+    sns.histplot(df_pairs["ratio"], bins=50, color="gray", alpha=0.3, stat="density", ax=ax2)
+    ax2.set_title("Verteilung der IOI-Verhältnisse", fontsize=14, fontweight="bold", pad=15)
+    ax2.set_xlabel("Verhältnis (IOI_i / IOI_j)")
+    ax2.set_ylabel("Dichte")
+    ax2.set_xlim(x_min, x_max)
+    ax2.grid(True)
+
+    # === Proximity-Matrix (Recurrence) ===
+    ax3 = fig.add_subplot(gs[3:5, 0])
+    n = len(iois)
+    for (i, j), val in np.ndenumerate(pivot_vals.values):
+        label = pivot_labels.iloc[i, j]
+        cmap = label_to_cmap[label]
+        color = cmap(val / 100) if not np.isnan(val) else (1, 1, 1, 1)
+        ax3.add_patch(plt.Rectangle([j, i], 1, 1, facecolor=color, edgecolor='black'))
+        if n <= 20 and not np.isnan(val):
+            ax3.text(j+0.5, i+0.5, f"{float(val.item()):.1f}", ha='center', va='center', fontsize=6, color="black")
+
+    ax3.set_xlim(0, n)
+    ax3.set_ylim(0, n)
+    ax3.set_aspect('equal')
+    ax3.set_xticks(np.arange(n)+0.5)
+    ax3.set_yticks(np.arange(n)+0.5)
+    ax3.set_xticklabels(range(n), rotation=45, ha="right")
+    ax3.set_yticklabels(range(n))
+    ax3.set_xlabel("j")
+    ax3.set_ylabel("i")
+    ax3.set_title("Proximity-Matrix der IOI-Verhältnisse\n", fontweight='bold')
+
+    # Farbskalen rechts
+    pos = ax3.get_position()
+    legend_labels = [lab for lab in unique_labels if lab != "Keine Proximity"]
+    cbar_width = 0.05
+    spacing = 0.01
+    n_labels = len(legend_labels)
+    bar_height = (pos.height - (n_labels-1)*spacing) / n_labels
+    for idx, label in enumerate(legend_labels):
+        cmap = label_to_cmap[label]
+        norm = plt.Normalize(vmin=0, vmax=100)
+        cbar_y = pos.y0 + pos.height - (idx+1)*bar_height - idx*spacing
+        cbar_ax = fig.add_axes([pos.x1 + 0.01, cbar_y, cbar_width, bar_height])
+        cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cbar_ax, orientation="horizontal")
+        cb.set_ticks([0, 50, 100])
+        cb.ax.tick_params(labelsize=9)
+        fig.text(pos.x1 + 0.07, cbar_y + bar_height/2, label, va='center', fontsize=10)
+
+    # === Histogramme ===
+    ax4 = fig.add_subplot(gs[3:5, 1])
+    colors = {"Real": "blue", "expon": "orange", "uniform": "gray", "empirical": "green"}
+    bin_edges = np.linspace(0, 1, 25)
+    ax4.hist(results["proximity_real"], bins=bin_edges, density=True, alpha=0.5, color="blue", label="Real")
+    sns.kdeplot(results["proximity_real"], bw_adjust=0.4, color="blue", linewidth=2, ax=ax4)
+
+    for model, prox_vals in results["null_proximities"].items():
+        color = colors.get(model, "black")
+        ax4.hist(prox_vals, bins=bin_edges, density=True, alpha=0.3, color=color, label=f"{model.capitalize()} Null")
+        sns.kdeplot(prox_vals, bw_adjust=0.4, color=color, linewidth=2, ax=ax4)
+        if model in res:
+            mstats = res[model]
+            ax4.axvline(mstats["median_null"], color=color, linestyle="--", linewidth=2)
+            ax4.axvline(mstats["quant95"], color=color, linestyle=":", linewidth=2)
+    ax4.axvline(res["median_real"], color="blue", linestyle="--", linewidth=2)
+    ax4.set_xlim(0, 1)
+    ax4.set_xlabel("Proximity-Werte")
+    ax4.set_ylabel("Dichte")
+    ax4.set_title("Histogramm: Real vs Nullmodelle", fontweight='bold')
+    ax4.grid(True, alpha=0.3)
+    ax4.legend()
+
+    # === Beat-Plot ===
+    ax5 = fig.add_subplot(gs[5:7, 0])
+    ax5.plot(beat_candidates, scores, label="Proximity Score")
+    for beat, score in local_maxima:
+        ax5.plot(beat, score, 'o', color='green')
+    top_labels = [f"{beat:.3f}s ({score:.2f})" for beat, score in local_maxima_top[:4]]
+    ax5.plot([], [], 'o', color='green', label="Lokale Maxima:\n" + "\n".join(top_labels))
+    ax5.set_xlabel("Beatdauer (s)")
+    ax5.set_ylabel("⟨Proximity(IOI/Beat)⟩")
+    ax5.set_title("Beatfinding: Grundschlag-Kandidaten\n", fontweight='bold')
+    ax5.grid(True)
+    ax5.legend()
+
+    # === Top-Beats ===
+    right_gs = GridSpecFromSubplotSpec(3, 1, subplot_spec=gs[5:7, 1], hspace=0.8, height_ratios=[0.9]*3)
+    ax_tops = []
+    for idx in range(min(3, len(local_maxima_top))):
+        ax_top = fig.add_subplot(right_gs[idx])
+        ax_tops.append(ax_top)
+        beat, score = local_maxima_top[idx]
+        best_shift, best_rmse, best_beats = compute_beat_rmse(onsets, beat)
+        ax_top.axhline(0, color='gray', linewidth=1)
+        ax_top.vlines(onsets, -0.2, 0.2, color='black', linewidth=2, label='Original Onsets' if idx==0 else "")
+        ax_top.vlines(best_beats, -0.1, 0.1, color='red', linestyle='--', label='Beat Raster' if idx==0 else "")
+        title = f"Beatdauer: {beat:.3f}s | Score: {score:.3f} | RMSE: {best_rmse*1000:.1f} ms | Phase-Shift: {best_shift:.3f}s"
+        ax_top.set_title(title, fontsize=10)
+        ax_top.set_yticks([])
+        ax_top.set_xlabel("Zeit (s)")
+        if idx == 0:
+            ax_top.legend(loc='upper right')
+
+    plt.tight_layout()
+
+    # === Optional speichern ===
+    if safe_fig:
+        from pathlib import Path
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        # Dateiname: z. B. heterochrony-1-2_jitter-0050_07_default_params_2.png
+        safe_name = Path(filename).stem.replace(" ", "_")
+        save_name = f"{safe_name}_params_{param_choice}.png"
+        save_path = save_dir / save_name
+
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        print(f"✅ Plot gespeichert unter: {save_path.resolve()}")
+
+    plt.show()
+
+    if not only_page:
+        return {"iois": iois, "onsets": onsets, "results": results, "params": params}
 
 # =============================
-# 3) Peak-Signifikanz für eine Sequenz
+# B) FUNCTIONS FOR DATASET/SEQUENCE RHYTHMICITY ANALYSIS 
+# (Called from peak_tables.ipynb)
 # =============================
-def compute_peak_significance_table(iois, params, num_null=200, seed=42, source="", alpha=0.05):
+
+def compute_peak_significance_table(iois, params, num_null=200, models=("expon", "uniform", "empirical"),
+                                    seed=42, source="", alpha=0.05):
+    """
+    Berechnet die Signifikanz einzelner Proximity-Peaks im Verhältnis zu gewählten Nullmodellen.
+    """
     rng = np.random.default_rng(seed)
+    iois = np.asarray(iois, dtype=float)
     n = len(iois)
     if n < 2:
         return pd.DataFrame()
+
     triu_idx = np.triu_indices(n, k=1)
     ratios_real = np.maximum(iois[:, None], iois[None, :]) / np.minimum(iois[:, None], iois[None, :])
     ratios_real = ratios_real[triu_idx]
-
     prox_real, best_frac_real = proximity_max_freq_gaussian_table(ratios_real, **params)
     threshold = params.get("threshold", 0.01)
 
-    peak_labels = [f"{k}/{f}" if (k,f)!=(0,0) else "keine Proximity" for k,f in best_frac_real]
+    peak_labels = [f"{k}/{f}" if (k, f) != (0, 0) else "keine Proximity" for k, f in best_frac_real]
     peaks = sorted(set([p for p in peak_labels if p != "keine Proximity"]))
 
-    peak_real_scores = {peak: np.array([prox_real[i] if peak_labels[i]==peak else threshold
-                                        for i in range(len(prox_real))])
-                        for peak in peaks}
+    peak_real_scores = {
+        peak: np.array([prox_real[i] if peak_labels[i] == peak else threshold for i in range(len(prox_real))])
+        for peak in peaks
+    }
 
-    null_scores = {model: {peak: [] for peak in peaks} for model in ["expon", "uniform", "empirical"]}
+    # -----------------------------
+    # Nullsequenzen erzeugen
+    # -----------------------------
+    null_sequences = generate_null_sequences(iois, num_sequences=num_null,
+                                             models=models, seed=seed)
+    null_scores = {model: {peak: [] for peak in peaks} for model in models}
 
-    for model in ["expon", "uniform", "empirical"]:
-        for _ in range(num_null):
-            ratios_null = build_null_ratios_table(n, model, rng, iois)
+    for model, sims in null_sequences.items():
+        for sim_iois in sims:
+            ratios_null = np.maximum(sim_iois[:, None], sim_iois[None, :]) / np.minimum(sim_iois[:, None], sim_iois[None, :])
+            ratios_null = ratios_null[triu_idx]
             prox_null, best_frac_null = proximity_max_freq_gaussian_table(ratios_null, **params)
-            peak_labels_null = [f"{k}/{f}" if (k,f)!=(0,0) else "keine Proximity" for k,f in best_frac_null]
+            peak_labels_null = [f"{k}/{f}" if (k, f) != (0, 0) else "keine Proximity" for k, f in best_frac_null]
             for peak in peaks:
-                vals = np.array([prox_null[i] if peak_labels_null[i]==peak else threshold
-                                 for i in range(len(prox_null))])
+                vals = np.array([prox_null[i] if peak_labels_null[i] == peak else threshold for i in range(len(prox_null))])
                 null_scores[model][peak].append(np.mean(vals))
 
+    # -----------------------------
+    # Ergebnisse zusammenstellen
+    # -----------------------------
     results = []
     for peak in peaks:
         peak_data = {"peak": peak}
         sig_models = []
-        for model in ["expon", "uniform", "empirical"]:
+        for model in models:
             pvals = np.array(null_scores[model][peak])
             mean_null = np.mean(pvals)
             pval = (np.sum(pvals >= np.mean(peak_real_scores[peak])) + 1) / (num_null + 1)
@@ -409,23 +728,17 @@ def compute_peak_significance_table(iois, params, num_null=200, seed=42, source=
             peak_data[f"{model}_pval"] = pval
             if pval < alpha:
                 sig_models.append(model)
-        peak_data[f"significance_alpha: {alpha}"] = ", ".join(sig_models) if sig_models else "n.s."
 
+        peak_data[f"significance_alpha: {alpha}"] = ", ".join(sig_models) if sig_models else "n.s."
         peak_data["mean_real"] = np.mean(peak_real_scores[peak])
-        # Level + Quelle
         peak_data["level"] = "sequence"
         peak_data["source"] = source
         results.append(peak_data)
 
     df = pd.DataFrame(results).sort_values("mean_real", ascending=False).reset_index(drop=True)
-    # Spaltenreihenfolge anpassen: peak | significance_dataset | level | source | Rest
     col_order = ["peak", f"significance_alpha: {alpha}", "level", "source"] + \
-        [c for c in df.columns if c not in ["peak", f"significance_alpha: {alpha}", "level", "source"]]
+                 [c for c in df.columns if c not in ["peak", f"significance_alpha: {alpha}", "level", "source"]]
     return df[col_order]
-
-# =============================
-# 4) Dataset-Analyse
-# =============================
 
 def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05):
     path = Path(path)
@@ -475,10 +788,6 @@ def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05):
         return df[col_order]
     else:
         raise ValueError(f"{path} is neither file nor folder!")
-
-# =============================
-# 5) Ergebnisse zusammenfassen
-# =============================
 
 def summarize_results_table(df, alpha=0.05):
     summaries = []
@@ -533,13 +842,15 @@ def summarize_results_table(df, alpha=0.05):
     # Spaltenreihenfolge sicherstellen
     return df_summary[["Filename", "Type", "Isochrony", "Simple Heterochrony", "Complex Heterochrony"]]
 
-# =============================
-# 6) Tabelle ausgeben
-# =============================
 def print_peak_table(df, title=None):
     if title:
         print(f"\n{title}\n" + "="*len(title))
     print(tabulate(df, headers="keys", tablefmt="fancy_grid", showindex=False, floatfmt=".4f"))
+
+# =============================
+# C) EXPLORATORY PLOTTING-WIDGET OF PROXIMITY FUNCTION
+# (Called from function_explorer.ipynb)
+# =============================
 
 def plot_proximity_max_freq_gaussian(
     sharpness_base=12.0,
