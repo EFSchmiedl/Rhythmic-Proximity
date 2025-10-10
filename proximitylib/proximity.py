@@ -25,27 +25,27 @@ from scipy.stats import gaussian_kde
 # =============================
 
 param_sets = {
-    0: dict(
-    sharpness_base=6.0, sharpness_growth=0.0, decay=0.0,
+    1: dict(
+    sharpness_base=2.0, sharpness_growth=0.0, decay=0.0,
     max_freq=1, x_max=1, weight_exponent=0.0, freq_sharpness_exp=0.0,
     output_max=1.0, threshold=0.01
 ),
-    1: dict(
+    2: dict(
     sharpness_base=6.0, sharpness_growth=0.1, decay=0.1,
     max_freq=1, x_max=None, weight_exponent=0.0, freq_sharpness_exp=0.0,
     output_max=1, threshold=0.01
 ),
-    2: dict(
+    3: dict(
     sharpness_base=10.0, sharpness_growth=0.1, decay=0.1,
     max_freq=2, x_max=None, weight_exponent=0.0, freq_sharpness_exp=1.0,
     output_max=1, threshold=0.01
 ),
-    3: dict(
+    4: dict(
     sharpness_base=14.0, sharpness_growth=0.1, decay=0.1,
     max_freq=3, x_max=None, weight_exponent=0.0, freq_sharpness_exp=1.2,
     output_max=1, threshold=0.01
 ),
-    4: dict(
+    5: dict(
     sharpness_base=14.0, sharpness_growth=0.1, decay=0.1,
     max_freq=4, x_max=None, weight_exponent=0.0, freq_sharpness_exp=1.5,
     output_max=1, threshold=0.01
