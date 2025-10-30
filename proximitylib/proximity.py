@@ -31,22 +31,22 @@ param_sets = {
     output_max=1.0, threshold=0.01
 ),
     2: dict(
-    sharpness_base=6.0, sharpness_growth=0.1, decay=0.1,
+    sharpness_base=6.0, sharpness_growth=0.1, decay=0.2,
     max_freq=1, x_max=None, weight_exponent=0.0, freq_sharpness_exp=0.0,
     output_max=1, threshold=0.01
 ),
     3: dict(
-    sharpness_base=10.0, sharpness_growth=0.1, decay=0.1,
+    sharpness_base=10.0, sharpness_growth=0.1, decay=0.2,
     max_freq=2, x_max=None, weight_exponent=0.0, freq_sharpness_exp=1.0,
     output_max=1, threshold=0.01
 ),
     4: dict(
-    sharpness_base=14.0, sharpness_growth=0.1, decay=0.1,
+    sharpness_base=14.0, sharpness_growth=0.1, decay=0.2,
     max_freq=3, x_max=None, weight_exponent=0.0, freq_sharpness_exp=1.2,
     output_max=1, threshold=0.01
 ),
     5: dict(
-    sharpness_base=14.0, sharpness_growth=0.1, decay=0.1,
+    sharpness_base=14.0, sharpness_growth=0.1, decay=0.2,
     max_freq=4, x_max=None, weight_exponent=0.0, freq_sharpness_exp=1.5,
     output_max=1, threshold=0.01
 )
@@ -55,6 +55,7 @@ param_sets = {
 # =============================
 # 1) Proximity-Function
 # =============================
+
 def proximity_max_freq_gaussian_table(
     x,
     sharpness_base=10.0,
@@ -97,9 +98,6 @@ def proximity_max_freq_gaussian_table(
     result[result < threshold] = threshold
     return result, best_frac
 
-# =============================
-# 2) Generate Null Sequences
-# =============================
 def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform"), seed=42):
     """
     Erstellt Nullsequenzen basierend auf den gegebenen IOIs und den gewählten Nullmodellen.
@@ -144,6 +142,7 @@ def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform"
 # A) FUNCTIONS FOR SINGLE SEQUENCE ANALYSIS 
 # (Called from catalogue.py)
 # =============================
+
 def build_pairwise_proximity_df(iois, params, threshold=0.01):
     n = len(iois)
     
@@ -186,8 +185,6 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
     Analysiert eine einzelne IOI-Sequenz gegen gewählte Nullmodelle
     (z. B. Exponential, Uniform, Empirical) und erstellt Histogramm mit
     Mean, 95%-Quantilen, Z-Score und p-Wert.
-
-    Rückgabe: dict mit realen Proximity-Paaren, Nullmodellen und Statistik.
     """
     rng = np.random.default_rng(seed)
     iois = np.asarray(iois, dtype=float)
@@ -203,7 +200,7 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
     prox_mat_real = prox_mat_real.reshape(ratios_real.shape)
     triu_idx = np.triu_indices_from(prox_mat_real, k=1)
     proximity_real = prox_mat_real[triu_idx]
-    median_real = np.median(proximity_real)
+    mean_real = np.mean(proximity_real)  # <--- Mean statt Median
 
     # -----------------------------
     # Nullsequenzen erzeugen
@@ -213,10 +210,10 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
 
     stats = {}
     proximities = {}
-    medians = {}
+    mean_values = {}
 
     for model, sims in null_sequences.items():
-        model_medians = []
+        model_means = []
         all_vals = []
         for sim_iois in sims:
             ratios = np.maximum(sim_iois[:, None], sim_iois[None, :]) / np.minimum(sim_iois[:, None], sim_iois[None, :])
@@ -224,20 +221,20 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
             prox_mat = prox_mat.reshape(ratios.shape)
             vals = prox_mat[triu_idx]
             all_vals.append(vals)
-            model_medians.append(np.median(vals))
+            model_means.append(np.mean(vals))  # <--- Mean statt Median
         all_vals = np.concatenate(all_vals)
         proximities[model] = all_vals
-        medians[model] = np.array(model_medians)
+        mean_values[model] = np.array(model_means)
 
-        mean_median = np.mean(model_medians)
-        std_median = np.std(model_medians, ddof=1)
-        zscore = (median_real - mean_median) / (std_median + 1e-12)
-        pval = (np.sum(medians[model] >= median_real) + 1) / (num_sequences + 1)
-        quant95 = np.percentile(medians[model], 95)
+        mean_null = np.mean(model_means)
+        std_null = np.std(model_means, ddof=1)
+        zscore = (mean_real - mean_null) / (std_null + 1e-12)
+        pval = (np.sum(mean_values[model] >= mean_real) + 1) / (num_sequences + 1)
+        quant95 = np.percentile(mean_values[model], 95)
 
         stats[model] = dict(
-            median_null=mean_median,
-            std_null=std_median,
+            mean_null=mean_null,
+            std_null=std_null,
             zscore=zscore,
             pval=pval,
             quant95=quant95,
@@ -247,26 +244,28 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
     # Plot (optional)
     # -----------------------------
     if plot:
+        import matplotlib.pyplot as plt
+        import seaborn as sns
         plt.figure(figsize=(12, 6))
         colors = {"Real": "blue", "expon": "orange", "uniform": "gray", "empirical": "green"}
-        all_nulls = np.concatenate([v for v in medians.values()])
+        all_nulls = np.concatenate([v for v in mean_values.values()])
         bin_edges = np.linspace(np.min(all_nulls), np.max(all_nulls), bins + 1)
 
         plt.hist(proximity_real, bins=bin_edges, density=True, alpha=0.5, color=colors["Real"], label="Real")
         sns.kdeplot(proximity_real, bw_adjust=0.5, color=colors["Real"], linewidth=2)
 
         for model in models:
-            plt.hist(medians[model], bins=bin_edges, density=True, alpha=0.3, color=colors[model],
-                     label=f"{model.capitalize()} Null (Mediane)")
-            sns.kdeplot(medians[model], bw_adjust=0.5, color=colors[model], linewidth=2)
+            plt.hist(mean_values[model], bins=bin_edges, density=True, alpha=0.3, color=colors[model],
+                     label=f"{model.capitalize()} Null (Mean)")
+            sns.kdeplot(mean_values[model], bw_adjust=0.5, color=colors[model], linewidth=2)
 
-            plt.axvline(stats[model]["median_null"], color=colors[model], linestyle="--", linewidth=2,
-                        label=f"{model} Mean ≈ {stats[model]['median_null']:.3f}")
+            plt.axvline(stats[model]["mean_null"], color=colors[model], linestyle="--", linewidth=2,
+                        label=f"{model} Mean ≈ {stats[model]['mean_null']:.3f}")
             plt.axvline(stats[model]["quant95"], color=colors[model], linestyle=":", linewidth=2,
                         label=f"{model} 95%-Quantil ≈ {stats[model]['quant95']:.3f}")
 
-        plt.axvline(median_real, color=colors["Real"], linestyle="--", linewidth=2,
-                    label=f"Real Median ≈ {median_real:.3f}")
+        plt.axvline(mean_real, color=colors["Real"], linestyle="--", linewidth=2,
+                    label=f"Real Mean ≈ {mean_real:.3f}")
         plt.xlabel("Proximity-Werte")
         plt.ylabel("Dichte")
         plt.title("Proximity-Paare: Real vs. Nullmodelle")
@@ -288,13 +287,14 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
     return {
         "proximity_real": proximity_real,
         "null_proximities": proximities,
-        "null_medians": medians,
-        "results": {"median_real": median_real, **stats},
+        "null_means": mean_values,
+        "results": {"mean_real": mean_real, **stats},
     }
 
 # ----------------------------
 # beat detection functions
 # ----------------------------
+
 def round_to_resolution(x, resolution):
     return round(x / resolution) * resolution
 
@@ -388,6 +388,7 @@ def compute_beat_rmse(onsets, beat_period, resolution=0.001):
 # ----------------------------
 # catalogue-layout (complete analysis + plotting)
 # ----------------------------
+
 def plot_sequence_analysis(
     filename,
     base_dir,
@@ -519,11 +520,11 @@ def plot_sequence_analysis(
         f"output_max={params['output_max']}",
         f"Top-{top_k} Beats: " + ", ".join([f"{b:.3f}s ({s:.2f})" for b, s in local_maxima_top]),
     ]
-    info_lines.append(f"Median Real: {res['median_real']:.3f}")
+    info_lines.append(f"Mean Real: {res['mean_real']:.3f}")
     for model, vals in res.items():
-        if isinstance(vals, dict) and "median_null" in vals:
+        if isinstance(vals, dict) and "mean_null" in vals:
             info_lines.append(
-                f"{model.capitalize()} → Median: {vals['median_null']:.3f} | "
+                f"{model.capitalize()} → Mean: {vals['mean_null']:.3f} | "
                 f"Std: {vals['std_null']:.3f} | Z: {vals['zscore']:.3f} | "
                 f"p: {vals['pval']:.3f} | Q95: {vals['quant95']:.3f}"
             )
@@ -540,7 +541,6 @@ def plot_sequence_analysis(
     ax1.set_ylabel("Proximity")
     ax1.grid(True)
     ax1.legend()
-
 
     # === IOI-Verhältnis Verteilung ===
     ax2 = fig.add_subplot(gs[2, :])
@@ -594,7 +594,8 @@ def plot_sequence_analysis(
     # === Histogramme ===
     ax4 = fig.add_subplot(gs[3:5, 1])
     colors = {"Real": "blue", "expon": "orange", "uniform": "gray", "empirical": "green"}
-    bin_edges = np.linspace(0, 1, 25)
+    bin_edges = np.linspace(0, 1, bins)
+
     ax4.hist(results["proximity_real"], bins=bin_edges, density=True, alpha=0.5, color="blue", label="Real")
     sns.kdeplot(results["proximity_real"], bw_adjust=0.4, color="blue", linewidth=2, ax=ax4)
 
@@ -604,9 +605,9 @@ def plot_sequence_analysis(
         sns.kdeplot(prox_vals, bw_adjust=0.4, color=color, linewidth=2, ax=ax4)
         if model in res:
             mstats = res[model]
-            ax4.axvline(mstats["median_null"], color=color, linestyle="--", linewidth=2)
+            ax4.axvline(mstats["mean_null"], color=color, linestyle="--", linewidth=2)
             ax4.axvline(mstats["quant95"], color=color, linestyle=":", linewidth=2)
-    ax4.axvline(res["median_real"], color="blue", linestyle="--", linewidth=2)
+    ax4.axvline(res["mean_real"], color="blue", linestyle="--", linewidth=2)
     ax4.set_xlim(0, 1)
     ax4.set_xlabel("Proximity-Werte")
     ax4.set_ylabel("Dichte")
