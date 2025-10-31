@@ -18,6 +18,7 @@ from math import gcd
 import matplotlib.gridspec as gridspec
 from matplotlib.gridspec import GridSpecFromSubplotSpec
 from tabulate import tabulate
+from scipy.stats import pearsonr
 from scipy.stats import gaussian_kde
 
 # =============================
@@ -174,7 +175,8 @@ def build_pairwise_proximity_df(iois, params, threshold=0.01):
         "ioi_j": np.tile(iois, n),
         "ratio": ratios.flatten(),
         "prox_value": prox_flat,
-        "peak_label": peak_labels.flatten()
+        "peak_label": peak_labels.flatten(),
+        "distance": np.abs(np.repeat(np.arange(n), n) - np.tile(np.arange(n), n)),
     })
     
     return df_pairs, ratios, prox_max
@@ -240,6 +242,40 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
             quant95=quant95,
         )
 
+    # --- reale Distanz-Korrelation ---
+    df_pairs, ratios_real, prox_mat_real = build_pairwise_proximity_df(iois, params)
+    triu_idx = np.triu_indices_from(prox_mat_real, k=1)
+    proximity_real = prox_mat_real[triu_idx]
+    mean_real = np.mean(proximity_real)
+
+    # Abstand berechnen
+    df_pairs["distance"] = np.abs(df_pairs["i"] - df_pairs["j"])
+    valid = df_pairs["i"] != df_pairs["j"]  # nur i != j
+    if valid.sum() > 0:
+        distance_corr_real, distance_corr_real_p = pearsonr(
+            df_pairs.loc[valid, "distance"], df_pairs.loc[valid, "prox_value"]
+        )
+    else:
+        distance_corr_real, distance_corr_real_p = np.nan, np.nan
+
+    # --- Nullsequenzen Distanz-Korrelation ---
+    distance_corr_nulls = {}
+    for model, sims in null_sequences.items():
+        model_corrs = []
+        for sim_iois in sims:
+            df_null_pairs, _, prox_mat_null = build_pairwise_proximity_df(sim_iois, params)
+            df_null_pairs["distance"] = np.abs(df_null_pairs["i"] - df_null_pairs["j"])
+            valid_null = df_null_pairs["i"] != df_null_pairs["j"]
+            if valid_null.sum() > 0:
+                corr, _ = pearsonr(
+                    df_null_pairs.loc[valid_null, "distance"],
+                    df_null_pairs.loc[valid_null, "prox_value"]
+                )
+                model_corrs.append(corr)
+            else:
+                model_corrs.append(np.nan)
+        distance_corr_nulls[model] = np.array(model_corrs)
+
     # -----------------------------
     # Plot (optional)
     # -----------------------------
@@ -288,6 +324,9 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
         "proximity_real": proximity_real,
         "null_proximities": proximities,
         "null_means": mean_values,
+        "distance_corr_real": distance_corr_real,
+        "distance_corr_real_p": distance_corr_real_p,
+        "distance_corr_nulls": distance_corr_nulls,
         "results": {"mean_real": mean_real, **stats},
     }
 
@@ -645,6 +684,283 @@ def plot_sequence_analysis(
         ax_top.set_xlabel("Zeit (s)")
         if idx == 0:
             ax_top.legend(loc='upper right')
+
+    plt.tight_layout()
+
+    # === Optional speichern ===
+    if safe_fig:
+        from pathlib import Path
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        # Dateiname: z. B. heterochrony-1-2_jitter-0050_07_default_params_2.png
+        safe_name = Path(filename).stem.replace(" ", "_")
+        save_name = f"{safe_name}_params_{param_choice}.png"
+        save_path = save_dir / save_name
+
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        print(f"✅ Plot gespeichert unter: {save_path.resolve()}")
+
+    plt.show()
+
+    if not only_page:
+        return {"iois": iois, "onsets": onsets, "results": results, "params": params}
+
+def new_plot_sequence_analysis(
+    filename,
+    base_dir,
+    param_choice=1,
+    null_models=("expon", "uniform"),
+    num_sequences=200,
+    seed=42,
+    bins=25,
+    top_k=5,
+    figsize=(20, 28),
+    only_page=False,
+    safe_fig=False,
+    save_dir=None,
+):
+    """
+    Führt vollständige IOI-Analyse + Beat-Detektion + Nullmodell-Vergleich + Visualisierung durch.
+
+    Parameter
+    ----------
+    filename : str
+        Name der zu analysierenden CSV-Datei mit 'IOI' und 'onset'-Spalten.
+    base_dir : str | Path
+        Pfad zum Ordner, in dem die Datei liegt.
+    param_choice : int | str
+        Welches Parameterset aus `param_sets` verwendet werden soll (z. B. 1, 2, "iso").
+    null_models : list[str]
+        Liste der Nullmodelle, z. B. ["expon", "uniform", "empirical"].
+    num_sequences : int
+        Anzahl Nullsequenzen pro Modell.
+    seed : int
+        Zufallssamen für Reproduzierbarkeit.
+    bins : int
+        Anzahl der Bins für Histogramme.
+    top_k : int
+        Anzahl der anzuzeigenden Top-Beats.
+    figsize : tuple
+        Größe der Gesamtfigur.
+
+    Rückgabe
+    --------
+    results : dict
+        Ergebnisse aus analyze_single_sequence() + Beat-Analyse + Parameter-Infos.
+    """
+
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import numpy as np
+    import pandas as pd
+    from pathlib import Path
+    import matplotlib.gridspec as gridspec
+    from matplotlib.gridspec import GridSpecFromSubplotSpec
+
+    # === Parameter und Datei laden ===
+    path = Path(base_dir) / filename
+    if not path.exists():
+        raise FileNotFoundError(f"Datei nicht gefunden: {path.resolve()}")
+
+    df = pd.read_csv(path)
+    iois = df["IOI"].dropna().values
+    onsets = df["onset"].dropna().values
+
+    params = param_sets[param_choice]
+    print(f"\nVerwendetes Parameter-Dict: default_params_{param_choice}")
+
+    # === Pairwise Proximity ===
+    df_pairs, ratios, prox_max = build_pairwise_proximity_df(iois, params)
+    x_min = max(1.0, df_pairs["ratio"].min() * 0.95)
+    x_max = df_pairs["ratio"].max() * 1.05
+    x_range = np.linspace(x_min, x_max, 2000)
+    y_curve, _ = proximity_max_freq_gaussian_table(x_range, **params)
+    mean_prox = np.mean(y_curve)
+
+    pivot_vals = df_pairs.pivot(index="i", columns="j", values="prox_value") * 100
+    pivot_labels = df_pairs.pivot(index="i", columns="j", values="peak_label")
+
+    # === Farben für Peaks ===
+    unique_labels = sorted(set(df_pairs["peak_label"]))
+    tab10 = plt.cm.tab10.colors
+    fixed_colors = {
+        "1/1": tab10[0], "2/1": tab10[1], "3/1": tab10[2], "4/1": tab10[3], "5/1": tab10[4],
+        "1/2": tab10[5], "3/2": tab10[6], "5/2": tab10[7], "1/3": tab10[8], "2/3": tab10[9],
+        "4/3": (0.5, 0.0, 0.5)
+    }
+    label_to_cmap = {}
+    for label, color in fixed_colors.items():
+        if label in unique_labels:
+            cmap_colors = [(1, 1, 1), plt.cm.colors.to_rgb(color)]
+            label_to_cmap[label] = plt.cm.colors.LinearSegmentedColormap.from_list(f"{label}_cmap", cmap_colors)
+    remaining_labels = [lab for lab in unique_labels if lab not in label_to_cmap]
+    palette = sns.color_palette("Set2", len(remaining_labels))
+    for label, base_color in zip(remaining_labels, palette):
+        cmap_colors = [(1, 1, 1), base_color]
+        label_to_cmap[label] = plt.cm.colors.LinearSegmentedColormap.from_list(f"{label}_cmap", cmap_colors)
+
+    # === Nullmodell-Analyse ===
+    results = analyze_single_sequence(
+        iois,
+        params=params,
+        num_sequences=num_sequences,
+        seed=seed,
+        bins=bins,
+        plot=False,
+        models=null_models
+    )
+
+    # === Beatfinding ===
+    beat_candidates = generate_beat_candidates_from_iois(iois)
+    scores = [score_for_beat(beat, iois, params) for beat in beat_candidates]
+    local_maxima = find_local_maxima(beat_candidates, scores, order=5)
+    local_maxima_top = sorted(local_maxima, key=lambda x: -x[1])[:top_k]
+
+    # === Figure ===
+    fig = plt.figure(figsize=figsize)
+    gs = gridspec.GridSpec(7, 2, figure=fig, width_ratios=[1, 1],
+                           height_ratios=[0.5, 1, 1, 1, 1, 1, 1], hspace=0.5, wspace=0.3)
+
+    # === Header ===
+    ax_header = fig.add_subplot(gs[0, :])
+    ax_header.axis("off")
+    ax_header.text(0.01, 1.0, f"IOI-Analyse:\n{filename}", transform=ax_header.transAxes,
+                   fontsize=22, fontweight='bold', va='top', ha='left')
+
+    res = results["results"]
+    info_lines = [
+        f"IOI-Länge: {len(iois)} | min: {np.min(iois):.3f}, max: {np.max(iois):.3f}, Ø: {np.mean(iois):.3f}",
+        f"PAIR_THRESHOLD: {params['threshold']}",
+        f"Params: sharpness_base={params['sharpness_base']}, sharpness_growth={params['sharpness_growth']}, decay={params['decay']}",
+        f"max_freq={params['max_freq']}, weight_exponent={params['weight_exponent']}, freq_sharpness_exp={params['freq_sharpness_exp']}",
+        f"output_max={params['output_max']}",
+        f"Top-{top_k} Beats: " + ", ".join([f"{b:.3f}s ({s:.2f})" for b, s in local_maxima_top]),
+    ]
+    info_lines.append(f"Mean Real: {res['mean_real']:.3f}")
+    for model, vals in res.items():
+        if isinstance(vals, dict) and "mean_null" in vals:
+            info_lines.append(
+                f"{model.capitalize()} → Mean: {vals['mean_null']:.3f} | "
+                f"Std: {vals['std_null']:.3f} | Z: {vals['zscore']:.3f} | "
+                f"p: {vals['pval']:.3f} | Q95: {vals['quant95']:.3f}"
+            )
+    # Distanz–Proximity-Korrelation
+    dcorr_real = results.get("distance_corr_real", np.nan)
+    dcorr_p = results.get("distance_corr_real_p", np.nan)
+    info_lines.append(f"Distance-Proximity (Real): r = {dcorr_real:.3f}, p = {dcorr_p:.3f}")
+
+    ax_header.text(0.99, 1.0, "\n".join(info_lines),
+                   transform=ax_header.transAxes, fontsize=11, va='top', ha='right')
+
+    # === Proximity-Funktion ===
+    ax1 = fig.add_subplot(gs[1, :])
+    ax1.plot(x_range, y_curve, label=f"Proximity (mean ≈ {mean_prox:.3f})", alpha=0.5, color="grey")
+    ax1.scatter(df_pairs["ratio"], df_pairs["prox_value"], s=10, alpha=0.7, color="red", label="IOI-Verhältnisse")
+    ax1.set_xlim(x_min, x_max)
+    ax1.set_title("Proximity-Funktion mit IOI-Verhältnissen\n", fontweight='bold')
+    ax1.set_xlabel("Verhältnis")
+    ax1.set_ylabel("Proximity")
+    ax1.grid(True)
+    ax1.legend()
+
+    # === IOI-Verhältnis Verteilung ===
+    ax2 = fig.add_subplot(gs[2, :])
+    sns.kdeplot(df_pairs["ratio"], fill=True, color="green", alpha=0.5, lw=2, bw_adjust=0.1, ax=ax2)
+    sns.histplot(df_pairs["ratio"], bins=50, color="gray", alpha=0.3, stat="density", ax=ax2)
+    ax2.set_title("Verteilung der IOI-Verhältnisse\n", fontsize=14, fontweight="bold", pad=15)
+    ax2.set_xlabel("Verhältnis (IOI_i / IOI_j)")
+    ax2.set_ylabel("Dichte")
+    ax2.set_xlim(x_min, x_max)
+    ax2.grid(True)
+
+    # === Proximity-Matrix (Recurrence) ===
+    ax3 = fig.add_subplot(gs[3:5, 0])
+    n = len(iois)
+    for (i, j), val in np.ndenumerate(pivot_vals.values):
+        label = pivot_labels.iloc[i, j]
+        cmap = label_to_cmap[label]
+        color = cmap(val / 100) if not np.isnan(val) else (1, 1, 1, 1)
+        ax3.add_patch(plt.Rectangle([j, i], 1, 1, facecolor=color, edgecolor='black'))
+        if n <= 20 and not np.isnan(val):
+            ax3.text(j+0.5, i+0.5, f"{float(val.item()):.1f}", ha='center', va='center', fontsize=6, color="black")
+
+    ax3.set_xlim(0, n)
+    ax3.set_ylim(0, n)
+    ax3.set_aspect('equal')
+    ax3.set_xticks(np.arange(n)+0.5)
+    ax3.set_yticks(np.arange(n)+0.5)
+    ax3.set_xticklabels(range(n), rotation=45, ha="right")
+    ax3.set_yticklabels(range(n))
+    ax3.set_xlabel("j")
+    ax3.set_ylabel("i")
+    ax3.set_title("Proximity-Matrix der IOI-Verhältnisse\n", fontweight='bold')
+
+    # Farbskalen rechts
+    pos = ax3.get_position()
+    legend_labels = [lab for lab in unique_labels if lab != "Keine Proximity"]
+    cbar_width = 0.05
+    spacing = 0.01
+    n_labels = len(legend_labels)
+    bar_height = (pos.height - (n_labels-1)*spacing) / n_labels
+    for idx, label in enumerate(legend_labels):
+        cmap = label_to_cmap[label]
+        norm = plt.Normalize(vmin=0, vmax=100)
+        cbar_y = pos.y0 + pos.height - (idx+1)*bar_height - idx*spacing
+        cbar_ax = fig.add_axes([pos.x1 + 0.01, cbar_y, cbar_width, bar_height])
+        cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cbar_ax, orientation="horizontal")
+        cb.set_ticks([0, 50, 100])
+        cb.ax.tick_params(labelsize=9)
+        fig.text(pos.x1 + 0.07, cbar_y + bar_height/2, label, va='center', fontsize=10)
+
+    # === Histogramme ===
+    ax4 = fig.add_subplot(gs[3:5, 1])
+    colors = {"Real": "blue", "expon": "orange", "uniform": "gray", "empirical": "green"}
+    bin_edges = np.linspace(0, 1, bins)
+
+    ax4.hist(results["proximity_real"], bins=bin_edges, density=True, alpha=0.5, color="blue", label="Real")
+    sns.kdeplot(results["proximity_real"], bw_adjust=0.4, color="blue", linewidth=2, ax=ax4)
+
+    for model, prox_vals in results["null_proximities"].items():
+        color = colors.get(model, "black")
+        ax4.hist(prox_vals, bins=bin_edges, density=True, alpha=0.3, color=color, label=f"{model.capitalize()} Null")
+        sns.kdeplot(prox_vals, bw_adjust=0.4, color=color, linewidth=2, ax=ax4)
+        if model in res:
+            mstats = res[model]
+            ax4.axvline(mstats["mean_null"], color=color, linestyle="--", linewidth=2)
+            ax4.axvline(mstats["quant95"], color=color, linestyle=":", linewidth=2)
+    ax4.axvline(res["mean_real"], color="blue", linestyle="--", linewidth=2)
+    ax4.set_xlim(0, 1)
+    ax4.set_xlabel("Proximity-Werte")
+    ax4.set_ylabel("Dichte")
+    ax4.set_title("Histogramm: Real vs Nullmodelle\n", fontweight='bold')
+    ax4.grid(True, alpha=0.3)
+    ax4.legend()
+
+    # === Scatterplot: Distance vs. Proximity (Real) ===
+    ax_scatter = fig.add_subplot(gs[5:7, 0])
+    if "distance" in df_pairs.columns:
+        sns.scatterplot(x=df_pairs["distance"], y=df_pairs["prox_value"], alpha=0.4, color='purple', ax=ax_scatter)
+        sns.regplot(x=df_pairs["distance"], y=df_pairs["prox_value"], scatter=False, color='red', ax=ax_scatter)
+        ax_scatter.set_xlabel("Abstand (Δ Index)")
+        ax_scatter.set_ylabel("Proximity")
+        ax_scatter.set_title("Real: Proximity vs. Abstand der IOIs\n", fontweight='bold')
+        ax_scatter.grid(True)
+
+    # === Abstand–Proximity-Korrelation: Real vs Nullmodelle ===
+    ax_corr = fig.add_subplot(gs[5:7, 1])
+    colors_corr = {"expon": "orange", "uniform": "gray", "empirical": "green"}
+    for model, corr_vals in results["distance_corr_nulls"].items():
+        color = colors_corr.get(model, "black")
+        sns.histplot(corr_vals, bins=20, color=color, alpha=0.4, label=f"{model.capitalize()} Null", ax=ax_corr)
+        sns.kdeplot(corr_vals, color=color, linewidth=2, ax=ax_corr)
+    ax_corr.axvline(results["distance_corr_real"], color="blue", linestyle="--", linewidth=2,
+                    label=f"Real r = {results['distance_corr_real']:.3f}")
+    ax_corr.set_xlabel("Korrelation (Distance ↔ Proximity)")
+    ax_corr.set_ylabel("Dichte")
+    ax_corr.set_title("Distance-Proximity-Korrelation: Real vs Nullmodelle\n", fontweight='bold')
+    ax_corr.legend()
+    ax_corr.grid(True, alpha=0.3)
 
     plt.tight_layout()
 
