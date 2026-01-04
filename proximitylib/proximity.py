@@ -91,24 +91,25 @@ def proximity_max_freq_gaussian_table(
 
 def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform"), seed=42):
     """
-    Erstellt Nullsequenzen basierend auf den gegebenen IOIs und den gewählten Nullmodellen.
+    Generates null sequences based on the given IOIs and selected null models.
 
     Parameters
     ----------
     iois : array-like
-        Input-Inter-Onset-Interval-Sequenz.
+        Input-Inter-Onset-Interval-Sequence.
     num_sequences : int
-        Anzahl der zu erzeugenden Nullsequenzen pro Modell.
+        Number of the null sequences to generate per model.
     models : tuple of str
-        Liste der gewünschten Nullmodelle. Mögliche Werte:
+        List of desired null models. Possible values:
         ("expon", "uniform", "empirical")
     seed : int
-        Zufallsstartwert.
+        Random seed for reproducibility.
 
     Returns
     -------
     dict[str, np.ndarray]
-        Dictionary mit Einträgen {modellname: array[num_sequences, len(iois)]}
+        Dictionary with model names as keys and generated null sequences
+        as values (shape: num_sequences x len(iois)).
     """
     rng = np.random.default_rng(seed)
     iois = np.asarray(iois, dtype=float)
@@ -124,7 +125,7 @@ def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform"
         elif model == "empirical":
             sims = rng.choice(iois, size=(num_sequences, n), replace=True)
         else:
-            raise ValueError(f"Unbekanntes Nullmodell: {model}")
+            raise ValueError(f"Unknown null model: {model}")
         null_sequences[model] = sims
 
     return null_sequences
@@ -174,25 +175,25 @@ def build_pairwise_proximity_df(iois, params, threshold=0.01):
 def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "uniform"),
                              seed=42, bins=50, plot=True):
     """
-    Analysiert eine einzelne IOI-Sequenz gegen gewählte Nullmodelle
-    (z. B. Exponential, Uniform, Empirical) und erstellt Histogramm mit
-    Mean, 95%-Quantilen, Z-Score und p-Wert.
+    Assesses a single IOI sequence against selected null models
+    (e.g., Exponential, Uniform, Empirical) and creates histogram with
+    mean, 95% quantiles, z-score, and p-value.
     """
     rng = np.random.default_rng(seed)
     iois = np.asarray(iois, dtype=float)
     sequence_length = len(iois)
     if sequence_length < 2:
-        raise ValueError("Die IOI-Sequenz muss mindestens 2 Elemente enthalten.")
+        raise ValueError("IOI sequence must contain at least two values.")
 
     # -----------------------------
-    # Reale Proximity-Paare
+    # Real Proximity-Scores
     # -----------------------------
     ratios_real = np.maximum(iois[:, None], iois[None, :]) / np.minimum(iois[:, None], iois[None, :])
     prox_mat_real, _ = proximity_max_freq_gaussian_table(ratios_real.flatten(), **params)
     prox_mat_real = prox_mat_real.reshape(ratios_real.shape)
     triu_idx = np.triu_indices_from(prox_mat_real, k=1)
     proximity_real = prox_mat_real[triu_idx]
-    mean_real = np.mean(proximity_real)  # <--- Mean statt Median
+    mean_real = np.mean(proximity_real)
 
     # -----------------------------
     # Nullsequenzen erzeugen
@@ -213,7 +214,7 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
             prox_mat = prox_mat.reshape(ratios.shape)
             vals = prox_mat[triu_idx]
             all_vals.append(vals)
-            model_means.append(np.mean(vals))  # <--- Mean statt Median
+            model_means.append(np.mean(vals))
         all_vals = np.concatenate(all_vals)
         proximities[model] = all_vals
         mean_values[model] = np.array(model_means)
@@ -232,13 +233,13 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
             quant95=quant95,
         )
 
-    # --- reale Distanz-Korrelation ---
+    # --- real distance correlation ---
     df_pairs, ratios_real, prox_mat_real = build_pairwise_proximity_df(iois, params)
     triu_idx = np.triu_indices_from(prox_mat_real, k=1)
     proximity_real = prox_mat_real[triu_idx]
     mean_real = np.mean(proximity_real)
 
-    # Abstand berechnen
+    # Calculate distance correlation for real data
     df_pairs["distance"] = np.abs(df_pairs["i"] - df_pairs["j"])
     valid = df_pairs["i"] != df_pairs["j"]  # nur i != j
     if valid.sum() > 0:
@@ -248,7 +249,7 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
     else:
         distance_corr_real, distance_corr_real_p = np.nan, np.nan
 
-    # --- Nullsequenzen Distanz-Korrelation ---
+    # --- null distance correlations ---
     distance_corr_nulls = {}
     for model, sims in null_sequences.items():
         model_corrs = []
@@ -282,33 +283,33 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
 
         for model in models:
             plt.hist(mean_values[model], bins=bin_edges, density=True, alpha=0.3, color=colors[model],
-                     label=f"{model.capitalize()} Null (Mean)")
+                     label=f"{model.capitalize()} Null (mean)")
             sns.kdeplot(mean_values[model], bw_adjust=0.5, color=colors[model], linewidth=2)
 
             plt.axvline(stats[model]["mean_null"], color=colors[model], linestyle="--", linewidth=2,
-                        label=f"{model} Mean ≈ {stats[model]['mean_null']:.3f}")
+                        label=f"{model} mean ≈ {stats[model]['mean_null']:.3f}")
             plt.axvline(stats[model]["quant95"], color=colors[model], linestyle=":", linewidth=2,
-                        label=f"{model} 95%-Quantil ≈ {stats[model]['quant95']:.3f}")
+                        label=f"{model} 95%-quantile ≈ {stats[model]['quant95']:.3f}")
 
         plt.axvline(mean_real, color=colors["Real"], linestyle="--", linewidth=2,
-                    label=f"Real Mean ≈ {mean_real:.3f}")
-        plt.xlabel("Proximity-Werte")
-        plt.ylabel("Dichte")
-        plt.title("Proximity-Paare: Real vs. Nullmodelle")
+                    label=f"real mean ≈ {mean_real:.3f}")
+        plt.xlabel("Proximity-Scores")
+        plt.ylabel("Density")
+        plt.title("Proximity-Scores: Real vs Null Models", fontweight='bold')
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.xlim(0, 1)
         plt.tight_layout()
         plt.show()
 
-        print("\n=== Ergebnisse ===")
+        print("\n=== Results ===")
         for model, vals in stats.items():
             print(f"\n{model.upper()}:")
             for k, v in vals.items():
                 print(f"  {k}: {v:.4f}")
 
     # -----------------------------
-    # Rückgabe
+    # Return results
     # -----------------------------
     return {
         "proximity_real": proximity_real,
@@ -335,33 +336,41 @@ def new_plot_sequence_analysis(
     save_dir=None,
 ):
     """
-    Führt vollständige IOI-Analyse + Beat-Detektion + Nullmodell-Vergleich + Visualisierung durch.
+    Creates a comprehensive figure analyzing a single IOI sequence from a CSV file.
+    The figure includes:
+    - Proximity function with IOI ratios
+    - Distribution of IOI ratios
+    - Proximity matrix (recurrence plot)
+    - Histograms comparing real proximity scores to null models
+    - Scatter plot of distance vs. proximity (real data)
+    - Correlation of distance and proximity (real vs. null models)
 
-    Parameter
+    Parameters
     ----------
     filename : str
-        Name der zu analysierenden CSV-Datei mit 'IOI' und 'onset'-Spalten.
-    base_dir : str | Path
-        Pfad zum Ordner, in dem die Datei liegt.
-    param_choice : int | str
-        Welches Parameterset aus `param_sets` verwendet werden soll (z. B. 1, 2, "iso").
-    null_models : list[str]
-        Liste der Nullmodelle, z. B. ["expon", "uniform", "empirical"].
+        Name of the CSV file containing IOI data.
+    base_dir : str
+        Base directory where the CSV file is located.
+    param_choice : int
+        Choice of parameter set (1, 2, or 3).
+    null_models : tuple of str
+        Null models to use for comparison (e.g., ("expon", "uniform")).
     num_sequences : int
-        Anzahl Nullsequenzen pro Modell.
+        Number of null sequences to generate per model.
     seed : int
-        Zufallssamen für Reproduzierbarkeit.
+        Random seed for reproducibility.
     bins : int
-        Anzahl der Bins für Histogramme.
+        Number of bins for histograms.
     top_k : int
-        Anzahl der anzuzeigenden Top-Beats.
+        Number of top beat candidates to display.
     figsize : tuple
-        Größe der Gesamtfigur.
-
-    Rückgabe
-    --------
-    results : dict
-        Ergebnisse aus analyze_single_sequence() + Beat-Analyse + Parameter-Infos.
+        Figure size.
+    only_page : bool
+        If True, only returns the figure object without displaying or saving.
+    safe_fig : bool
+        If True, saves the figure to the specified save_dir.
+    save_dir : str or None
+        Directory to save the figure if safe_fig is True.
     """
 
     import matplotlib.pyplot as plt
@@ -372,17 +381,17 @@ def new_plot_sequence_analysis(
     import matplotlib.gridspec as gridspec
     from matplotlib.gridspec import GridSpecFromSubplotSpec
 
-    # === Parameter und Datei laden ===
+    # === Load Parameters and File ===
     path = Path(base_dir) / filename
     if not path.exists():
-        raise FileNotFoundError(f"Datei nicht gefunden: {path.resolve()}")
+        raise FileNotFoundError(f"File not found: {path.resolve()}")
 
     df = pd.read_csv(path)
     iois = df["IOI"].dropna().values
     onsets = df["onset"].dropna().values
 
     params = param_sets[param_choice]
-    print(f"\nVerwendetes Parameter-Dict: default_params_{param_choice}")
+    print(f"\nUsing parameter dict: default_params_{param_choice}")
 
     # === Pairwise Proximity ===
     df_pairs, ratios, prox_max = build_pairwise_proximity_df(iois, params)
@@ -395,7 +404,7 @@ def new_plot_sequence_analysis(
     pivot_vals = df_pairs.pivot(index="i", columns="j", values="prox_value") * 100
     pivot_labels = df_pairs.pivot(index="i", columns="j", values="peak_label")
 
-    # === Farben für Peaks ===
+    # === Color peaks ===
     unique_labels = sorted(set(df_pairs["peak_label"]))
     tab10 = plt.cm.tab10.colors
     fixed_colors = {
@@ -414,7 +423,7 @@ def new_plot_sequence_analysis(
         cmap_colors = [(1, 1, 1), base_color]
         label_to_cmap[label] = plt.cm.colors.LinearSegmentedColormap.from_list(f"{label}_cmap", cmap_colors)
 
-    # === Nullmodell-Analyse ===
+    # === Nullmodel Analysis ===
     results = analyze_single_sequence(
         iois,
         params=params,
@@ -424,12 +433,6 @@ def new_plot_sequence_analysis(
         plot=False,
         models=null_models
     )
-
-    # === Beatfinding ===
-    beat_candidates = generate_beat_candidates_from_iois(iois)
-    scores = [score_for_beat(beat, iois, params) for beat in beat_candidates]
-    local_maxima = find_local_maxima(beat_candidates, scores, order=5)
-    local_maxima_top = sorted(local_maxima, key=lambda x: -x[1])[:top_k]
 
     # === Figure ===
     fig = plt.figure(figsize=figsize)
@@ -444,12 +447,11 @@ def new_plot_sequence_analysis(
 
     res = results["results"]
     info_lines = [
-        f"IOI-Länge: {len(iois)} | min: {np.min(iois):.3f}, max: {np.max(iois):.3f}, Ø: {np.mean(iois):.3f}",
+        f"Number of IOIs: {len(iois)} | min: {np.min(iois):.3f}, max: {np.max(iois):.3f}, Ø: {np.mean(iois):.3f}",
         f"PAIR_THRESHOLD: {params['threshold']}",
-        f"Params: sharpness_base={params['sharpness_base']}, sharpness_growth={params['sharpness_growth']}, decay={params['decay']}",
+        f"Parameters: sharpness_base={params['sharpness_base']}, sharpness_growth={params['sharpness_growth']}, decay={params['decay']}",
         f"max_freq={params['max_freq']}, weight_exponent={params['weight_exponent']}, freq_sharpness_exp={params['freq_sharpness_exp']}",
         f"output_max={params['output_max']}",
-        f"Top-{top_k} Beats: " + ", ".join([f"{b:.3f}s ({s:.2f})" for b, s in local_maxima_top]),
     ]
     info_lines.append(f"Mean Real: {res['mean_real']:.3f}")
     for model, vals in res.items():
@@ -459,7 +461,7 @@ def new_plot_sequence_analysis(
                 f"Std: {vals['std_null']:.3f} | Z: {vals['zscore']:.3f} | "
                 f"p: {vals['pval']:.3f} | Q95: {vals['quant95']:.3f}"
             )
-    # Distanz–Proximity-Korrelation
+    # Distance-Proximity Correlation
     dcorr_real = results.get("distance_corr_real", np.nan)
     dcorr_p = results.get("distance_corr_real_p", np.nan)
     info_lines.append(f"Distance-Proximity (Real): r = {dcorr_real:.3f}, p = {dcorr_p:.3f}")
@@ -467,24 +469,24 @@ def new_plot_sequence_analysis(
     ax_header.text(0.99, 1.0, "\n".join(info_lines),
                    transform=ax_header.transAxes, fontsize=11, va='top', ha='right')
 
-    # === Proximity-Funktion ===
+    # === Proximity-Function ===
     ax1 = fig.add_subplot(gs[1, :])
     ax1.plot(x_range, y_curve, label=f"Proximity (mean ≈ {mean_prox:.3f})", alpha=0.5, color="grey")
-    ax1.scatter(df_pairs["ratio"], df_pairs["prox_value"], s=10, alpha=0.7, color="red", label="IOI-Verhältnisse")
+    ax1.scatter(df_pairs["ratio"], df_pairs["prox_value"], s=10, alpha=0.7, color="red", label="IOI-Ratios")
     ax1.set_xlim(x_min, x_max)
-    ax1.set_title("Proximity-Funktion mit IOI-Verhältnissen\n", fontweight='bold')
-    ax1.set_xlabel("Verhältnis")
+    ax1.set_title("Proximity-Function with IOI Ratios\n", fontweight='bold')
+    ax1.set_xlabel("Ratio")
     ax1.set_ylabel("Proximity")
     ax1.grid(True)
     ax1.legend()
 
-    # === IOI-Verhältnis Verteilung ===
+    # === IOI-Ratio Distribution ===
     ax2 = fig.add_subplot(gs[2, :])
     sns.kdeplot(df_pairs["ratio"], fill=True, color="green", alpha=0.5, lw=2, bw_adjust=0.1, ax=ax2)
     sns.histplot(df_pairs["ratio"], bins=50, color="gray", alpha=0.3, stat="density", ax=ax2)
-    ax2.set_title("Verteilung der IOI-Verhältnisse\n", fontsize=14, fontweight="bold", pad=15)
-    ax2.set_xlabel("Verhältnis (IOI_i / IOI_j)")
-    ax2.set_ylabel("Dichte")
+    ax2.set_title("Distribution of IOI Ratios\n", fontsize=14, fontweight="bold", pad=15)
+    ax2.set_xlabel("Ratio (IOI_i / IOI_j)")
+    ax2.set_ylabel("Density")
     ax2.set_xlim(x_min, x_max)
     ax2.grid(True)
 
@@ -508,9 +510,9 @@ def new_plot_sequence_analysis(
     ax3.set_yticklabels(range(n))
     ax3.set_xlabel("j")
     ax3.set_ylabel("i")
-    ax3.set_title("Proximity-Matrix der IOI-Verhältnisse\n", fontweight='bold')
+    ax3.set_title("Proximity-Matrix of IOI Ratios\n", fontweight='bold')
 
-    # Farbskalen rechts
+    # === Colorbars for Peak Labels ===
     pos = ax3.get_position()
     legend_labels = [lab for lab in unique_labels if lab != "No Proximity"]
     cbar_width = 0.05
@@ -527,7 +529,7 @@ def new_plot_sequence_analysis(
         cb.ax.tick_params(labelsize=9)
         fig.text(pos.x1 + 0.07, cbar_y + bar_height/2, label, va='center', fontsize=10)
 
-    # === Histogramme ===
+    # === Histogramm ===
     ax4 = fig.add_subplot(gs[3:5, 1])
     colors = {"Real": "blue", "expon": "orange", "uniform": "gray", "empirical": "green"}
     bin_edges = np.linspace(0, 1, bins)
@@ -545,9 +547,9 @@ def new_plot_sequence_analysis(
             ax4.axvline(mstats["quant95"], color=color, linestyle=":", linewidth=2)
     ax4.axvline(res["mean_real"], color="blue", linestyle="--", linewidth=2)
     ax4.set_xlim(0, 1)
-    ax4.set_xlabel("Proximity-Werte")
-    ax4.set_ylabel("Dichte")
-    ax4.set_title("Histogramm: Real vs Nullmodelle\n", fontweight='bold')
+    ax4.set_xlabel("Proximity-Scores")
+    ax4.set_ylabel("Density")
+    ax4.set_title("Histogram: Real vs Nullmodels\n", fontweight='bold')
     ax4.grid(True, alpha=0.3)
     ax4.legend()
 
@@ -556,12 +558,12 @@ def new_plot_sequence_analysis(
     if "distance" in df_pairs.columns:
         sns.scatterplot(x=df_pairs["distance"], y=df_pairs["prox_value"], alpha=0.4, color='purple', ax=ax_scatter)
         sns.regplot(x=df_pairs["distance"], y=df_pairs["prox_value"], scatter=False, color='red', ax=ax_scatter)
-        ax_scatter.set_xlabel("Abstand (Δ Index)")
+        ax_scatter.set_xlabel("Distance (Δ Index)")
         ax_scatter.set_ylabel("Proximity")
-        ax_scatter.set_title("Real: Proximity vs. Abstand der IOIs\n", fontweight='bold')
+        ax_scatter.set_title("Real: Proximity vs. Distance of IOIs\n", fontweight='bold')
         ax_scatter.grid(True)
 
-    # === Abstand–Proximity-Korrelation: Real vs Nullmodelle ===
+    # === Correlation: Distance vs. Proximity (Real) ===
     ax_corr = fig.add_subplot(gs[5:7, 1])
     colors_corr = {"expon": "orange", "uniform": "gray", "empirical": "green"}
     for model, corr_vals in results["distance_corr_nulls"].items():
@@ -570,27 +572,27 @@ def new_plot_sequence_analysis(
         sns.kdeplot(corr_vals, color=color, linewidth=2, ax=ax_corr)
     ax_corr.axvline(results["distance_corr_real"], color="blue", linestyle="--", linewidth=2,
                     label=f"Real r = {results['distance_corr_real']:.3f}")
-    ax_corr.set_xlabel("Korrelation (Distance ↔ Proximity)")
-    ax_corr.set_ylabel("Dichte")
-    ax_corr.set_title("Distance-Proximity-Korrelation: Real vs Nullmodelle\n", fontweight='bold')
+    ax_corr.set_xlabel("Distance-Proximity Correlation (r)")
+    ax_corr.set_ylabel("Density")
+    ax_corr.set_title("Distance-Proximity Correlation: Real vs Nullmodels\n", fontweight='bold')
     ax_corr.legend()
     ax_corr.grid(True, alpha=0.3)
 
     plt.tight_layout()
 
-    # === Optional speichern ===
+    # === Save Figure ===
     if safe_fig:
         from pathlib import Path
         save_dir = Path(save_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        # Dateiname: z. B. heterochrony-1-2_jitter-0050_07_default_params_2.png
+        # filename: e. g. heterochrony-1-2_jitter-0050_07_default_params_2.png
         safe_name = Path(filename).stem.replace(" ", "_")
         save_name = f"{safe_name}_params_{param_choice}.png"
         save_path = save_dir / save_name
 
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
-        print(f"✅ Plot gespeichert unter: {save_path.resolve()}")
+        print(f"Plot saved: {save_path.resolve()}")
 
     plt.show()
 
@@ -606,8 +608,8 @@ def compute_peak_significance_table(iois, params, num_null=200,
                                     models=("expon", "uniform", "empirical"),
                                     seed=42, source="", alpha=0.05):
     """
-    Identisch zur alten Logik, aber mit zusätzlicher Berechnung
-    der Distanz–Proximity-Korrelation am Ende.
+    Identifies significant proximity peaks in an IOI sequence by comparing real proximity scores
+    against null models. Returns a DataFrame summarizing significant peaks.
     """
     rng = np.random.default_rng(seed)
     iois = np.asarray(iois, dtype=float)
@@ -629,7 +631,7 @@ def compute_peak_significance_table(iois, params, num_null=200,
         for peak in peaks
     }
 
-    # ===== Nullmodelle =====
+    # ===== Nullmodels =====
     null_sequences = generate_null_sequences(iois, num_sequences=num_null, models=models, seed=seed)
     null_scores = {model: {peak: [] for peak in peaks} for model in models}
 
@@ -643,7 +645,7 @@ def compute_peak_significance_table(iois, params, num_null=200,
                 vals = np.array([prox_null[i] if peak_labels_null[i]==peak else threshold for i in range(len(prox_null))])
                 null_scores[model][peak].append(np.mean(vals))
 
-    # ===== Ergebnisse wie vorher =====
+    # ===== Results =====
     results = []
     for peak in peaks:
         peak_data = {"peak": peak}
@@ -667,7 +669,7 @@ def compute_peak_significance_table(iois, params, num_null=200,
     col_order = ["peak", f"significance_alpha: {alpha}", "level", "source"] + \
                  [c for c in df.columns if c not in ["peak", f"significance_alpha: {alpha}", "level", "source"]]
 
-    # ===== NEU: Distanz–Proximity-Korrelation separat =====
+    # ===== Distance-Proximity Correlation =====
     from scipy.stats import pearsonr
     distances = np.abs(triu_idx[0] - triu_idx[1])
     valid = distances != 0
@@ -688,7 +690,7 @@ def compute_peak_significance_table(iois, params, num_null=200,
                 corr_null = np.nan
             distance_corr_nulls[model].append(corr_null)
 
-    # --- p-Werte für dist_corr ---
+    # --- p-values for dist_corr ---
     distance_corr_dict = {
         "distance_corr_real": float(distance_corr_real),
         "distance_corr_real_p": float(distance_corr_real_p)
@@ -709,6 +711,8 @@ def compute_peak_significance_table(iois, params, num_null=200,
 
 def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=("expon", "uniform", "empirical")):
     path = Path(path)
+    """Analyzes a dataset of IOIs and identifies significant proximity peaks."""
+
     if path.is_file():
         df = pd.read_csv(path)
         iois = df["IOI"].dropna().values
@@ -730,7 +734,7 @@ def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=(
             return pd.DataFrame()
 
         df_concat = pd.concat(all_peak_dfs, ignore_index=True)
-        # --- Distance-Corr Werte mitteln ---
+        # --- Average distance-corr values ---
         distance_corr_keys = ["distance_corr_real", "distance_corr_real_p",
                             "distance_corr_expon_p", "distance_corr_uniform_p", "distance_corr_empirical_p"]
 
@@ -738,8 +742,6 @@ def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=(
         for key in distance_corr_keys:
             vals = [d[key] for d in all_distance_corr_dicts if key in d]
             distance_corr_means[key] = float(np.nanmean(vals)) if vals else np.nan
-
-        # distance_corr_means wird **als dict zurückgegeben**, nicht in row.update()
 
         grouped = df_concat.groupby("peak")
         final_rows = []
@@ -763,7 +765,6 @@ def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=(
             final_rows.append(row)
 
         df = pd.DataFrame(final_rows).sort_values("mean_real", ascending=False)
-        # Spaltenreihenfolge: peak | significance_dataset | level | source | Rest
         col_order = ["peak", f"significance_alpha: {alpha}", "level", "source"] + \
             [c for c in df.columns if c not in ["peak", f"significance_alpha: {alpha}", "level", "source"]]
 
@@ -773,8 +774,7 @@ def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=(
 
 def summarize_results_table(df, distance_corr_dict=None, alpha=0.05):
     """
-    Fasst die Ergebnisse pro Datei/Dataset zusammen.
-    Zeigt Peaks nach Kategorie und Distance–Proximity-Korrelation (klassischer r + p, plus Nullmodell-Ps)
+    Summarizes the peak significance results into a readable table format.
     """
 
     summaries = []
@@ -783,7 +783,7 @@ def summarize_results_table(df, distance_corr_dict=None, alpha=0.05):
         filename = str(row["source"])
         dtype = str(row["level"])
 
-        # --- Peak-Klassifikation ---
+        # --- Classification of peak ---
         peak = row["peak"]
         sig_models = []
         for model in ["expon", "uniform", "empirical"]:
@@ -792,7 +792,7 @@ def summarize_results_table(df, distance_corr_dict=None, alpha=0.05):
                 sig_models.append(f"True: {peak}: {model} ({pval:.4f})")
         peak_sig_text = "\n".join(sig_models) if sig_models else "False"
 
-        # Kategorie bestimmen
+        # --- Determine category ---
         if peak == "1/1":
             category = "Isochrony"
         elif peak.endswith("/1") and not peak.startswith("1/"):
@@ -811,13 +811,13 @@ def summarize_results_table(df, distance_corr_dict=None, alpha=0.05):
 
     df_summary = pd.DataFrame(summaries)
 
-    # --- Distance–Proximity-Korrelation Spalte ---
+    # -- Distance-Proximity Correlation ---
     if distance_corr_dict is not None:
         r_real = distance_corr_dict.get("distance_corr_real", np.nan)
         r_classic_p = distance_corr_dict.get("distance_corr_real_p", np.nan)
         corr_col_name = f"Distance-Proximity Correlation\n(pearson r={r_real:.3f}, classical p={r_classic_p:.3f})"
 
-        # Texte für Signifikanz gegen Nullmodelle
+        # test significance
         corr_sig_texts = []
         for model in ["expon", "uniform", "empirical"]:
             pval = distance_corr_dict.get(f"distance_corr_{model}_p", np.nan)
@@ -830,7 +830,7 @@ def summarize_results_table(df, distance_corr_dict=None, alpha=0.05):
         corr_col_name = "Distance-Proximity correlation"
         df_summary[corr_col_name] = "False"
 
-    # --- Gruppieren und Strings zusammenfassen ---
+    # --- Merge entries per file and type ---
     def merge_vals(series):
         vals = [str(v).strip() for v in series if str(v) != "False" and pd.notna(v)]
         unique_vals = sorted(set(vals))
@@ -843,29 +843,34 @@ def summarize_results_table(df, distance_corr_dict=None, alpha=0.05):
         corr_col_name: merge_vals
     })
 
-    # Spaltenreihenfolge
+    # --- Final column order ---
     return df_summary[["Filename", "Type", "Isochrony", "Simple Heterochrony", "Complex Heterochrony", corr_col_name]]
 
 def print_peak_table(df, title=None):
+    """
+    Prints the peak significance DataFrame in a formatted table.
+    """
+    from tabulate import tabulate
+
     if title:
         print(f"\n{title}\n" + "=" * len(title))
     
-    # Prüfen, ob df überhaupt ein DataFrame ist
+    # Ensure df is a DataFrame
     if not isinstance(df, pd.DataFrame):
-        print("Fehler: print_peak_table erwartet einen DataFrame, bekam:", type(df))
+        print("Error: print_peak_table expects a DataFrame, got:", type(df))
         return
-    
-    # Float-Spalten auf 4 Nachkommastellen formatieren
+
+    # Format float columns
     float_cols = df.select_dtypes(include=["float64", "float32"]).columns.tolist()
 
-    # tabulate akzeptiert KEIN dict für floatfmt → wir setzen einheitlich ".4f"
+    # Print the table with formatted floats
     print(
         tabulate(
             df,
             headers="keys",
             tablefmt="fancy_grid",
             showindex=False,
-            floatfmt=".4f"  # Einheitliches Format für alle floats
+            floatfmt=".4f"  # Format floats to 4 decimal places
         )
     )
 
@@ -917,7 +922,7 @@ def plot_proximity_max_freq_gaussian(
         scaling_factor = max(counts) / max(kde_vals)
         axes[1].plot(x_dens, kde_vals * scaling_factor, color="darkblue", lw=2, label="Density (KDE)")
     except np.linalg.LinAlgError:
-        print("KDE konnte nicht berechnet werden (konstante Werte?)")
+        print("Warning: KDE computation failed due to singular data covariance.")
 
     axes[1].axvline(mean_prox, color='red', linestyle='--', linewidth=2, label=f"∫mean ≈ {mean_prox:.3f}")
     axes[1].set_title("Proximity Distribution")
