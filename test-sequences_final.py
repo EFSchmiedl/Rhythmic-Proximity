@@ -8,7 +8,7 @@ BASE_IOI_LIST = [0.4, 0.5, 0.6, 1.0]
 BEAT_COUNTS = [6, 20, 100] 
 JITTER_STD_LIST = [0.001, 0.005, 0.01, 0.05, 0.1]
 REPEATS = 10
-BASE_OUTPUT_DIR = 'data/theoretical_sequences'
+BASE_OUTPUT_DIR = 'data/theoretical_sequences_new'
 INITIAL_ONSET = 0.1
 
 # === Seed for reproducibility ===
@@ -30,14 +30,33 @@ def truncated_jitter(size, std=0.1, limit=0.4):
     a, b = -limit / std, limit / std
     return truncnorm.rvs(a, b, scale=std, size=size)
 
-def save_sequence(iois, base_ioi, num_beats, name, idx=None):
+def save_sequence(iois, base_ioi, num_beats, condition, idx=None):
     onsets = np.insert(INITIAL_ONSET + np.cumsum(iois), 0, INITIAL_ONSET)
     iois_with_nan = np.append(iois, np.nan)
-    df = pd.DataFrame({'onset': onsets, 'IOI': iois_with_nan, 'label': 'a'})
-    dir_path = os.path.join(BASE_OUTPUT_DIR, f"baseIOI-{base_ioi:.2f}", f"{num_beats}beats")
+
+    df = pd.DataFrame({
+        'onset': onsets,
+        'IOI': iois_with_nan,
+        'label': 'a'
+    })
+
+    # --- Directory structure ---
+    dir_path = os.path.join(
+        BASE_OUTPUT_DIR,
+        f"baseIOI-{base_ioi:.2f}",
+        f"{num_beats}beats",
+        condition
+    )
     os.makedirs(dir_path, exist_ok=True)
-    filename = f"{name}.csv" if idx is None else f"{name}_{idx:02}.csv"
+
+    # --- File naming ---
+    if idx is None:
+        filename = f"{condition}.csv"
+    else:
+        filename = f"{condition}_{idx:02d}.csv"
+
     df.to_csv(os.path.join(dir_path, filename), index=False)
+
 
 # === Main Loops ===
 for base_ioi in BASE_IOI_LIST:

@@ -32,14 +32,14 @@ param_sets = {
     output_max=1.0, threshold=0.01
 ),
     2: dict(
-    sharpness_base=6.0, sharpness_growth=0.1, decay=0.0,
-    max_freq=1, x_max=None, weight_exponent=0.0, freq_sharpness_exp=0.0,
-    output_max=1, threshold=0.01
+    sharpness_base=6.0, sharpness_growth=0.0, decay=0.0,
+    max_freq=1, x_max=5, weight_exponent=0.0, freq_sharpness_exp=0.0,
+    output_max=1.0, threshold=0.01
 ),
     3: dict(
-    sharpness_base=10.0, sharpness_growth=0.1, decay=0,
-    max_freq=2, x_max=None, weight_exponent=0.0, freq_sharpness_exp=1.0,
-    output_max=1, threshold=0.01
+    sharpness_base=10.0, sharpness_growth=0.0, decay=0.0,
+    max_freq=2, x_max=5, weight_exponent=0.0, freq_sharpness_exp=1.0,
+    output_max=1.0, threshold=0.01
 )
 }
 
@@ -47,7 +47,7 @@ param_sets = {
 # 1) Proximity-Function
 # =============================
 
-def proximity_max_freq_gaussian_table(
+def proximity_max_freq_gaussian(
     x,
     sharpness_base=10.0,
     sharpness_growth=1.0,
@@ -101,7 +101,7 @@ def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform"
         Number of the null sequences to generate per model.
     models : tuple of str
         List of desired null models. Possible values:
-        ("expon", "uniform", "empirical")
+        ("expon", "uniform")
     seed : int
         Random seed for reproducibility.
 
@@ -122,8 +122,6 @@ def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform"
             sims = rng.exponential(scale=mean_ioi, size=(num_sequences, n))
         elif model == "uniform":
             sims = rng.uniform(0.01, max_ioi, size=(num_sequences, n))
-        elif model == "empirical":
-            sims = rng.choice(iois, size=(num_sequences, n), replace=True)
         else:
             raise ValueError(f"Unknown null model: {model}")
         null_sequences[model] = sims
@@ -146,7 +144,7 @@ def build_pairwise_proximity_df(iois, params, threshold=0.01):
     
     # --- Proximity-Matrix ---
     ratios_flat = ratios.flatten()
-    prox_flat, best_frac_flat = proximity_max_freq_gaussian_table(ratios_flat, **params)
+    prox_flat, best_frac_flat = proximity_max_freq_gaussian(ratios_flat, **params)
     prox_mat = prox_flat.reshape(n, n)
     
     # --- Peak-Labels ---
@@ -176,7 +174,7 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
                              seed=42, bins=50, plot=True):
     """
     Assesses a single IOI sequence against selected null models
-    (e.g., Exponential, Uniform, Empirical) and creates histogram with
+    (e.g., Exponential, Uniform) and creates histogram with
     mean, 95% quantiles, z-score, and p-value.
     """
     rng = np.random.default_rng(seed)
@@ -189,7 +187,7 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
     # Real Proximity-Scores
     # -----------------------------
     ratios_real = np.maximum(iois[:, None], iois[None, :]) / np.minimum(iois[:, None], iois[None, :])
-    prox_mat_real, _ = proximity_max_freq_gaussian_table(ratios_real.flatten(), **params)
+    prox_mat_real, _ = proximity_max_freq_gaussian(ratios_real.flatten(), **params)
     prox_mat_real = prox_mat_real.reshape(ratios_real.shape)
     triu_idx = np.triu_indices_from(prox_mat_real, k=1)
     proximity_real = prox_mat_real[triu_idx]
@@ -210,7 +208,7 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
         all_vals = []
         for sim_iois in sims:
             ratios = np.maximum(sim_iois[:, None], sim_iois[None, :]) / np.minimum(sim_iois[:, None], sim_iois[None, :])
-            prox_mat, _ = proximity_max_freq_gaussian_table(ratios.flatten(), **params)
+            prox_mat, _ = proximity_max_freq_gaussian(ratios.flatten(), **params)
             prox_mat = prox_mat.reshape(ratios.shape)
             vals = prox_mat[triu_idx]
             all_vals.append(vals)
@@ -274,7 +272,7 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
         import matplotlib.pyplot as plt
         import seaborn as sns
         plt.figure(figsize=(12, 6))
-        colors = {"Real": "blue", "expon": "orange", "uniform": "gray", "empirical": "green"}
+        colors = {"Real": "blue", "expon": "orange", "uniform": "gray"}
         all_nulls = np.concatenate([v for v in mean_values.values()])
         bin_edges = np.linspace(np.min(all_nulls), np.max(all_nulls), bins + 1)
 
@@ -398,7 +396,7 @@ def new_plot_sequence_analysis(
     x_min = max(1.0, df_pairs["ratio"].min() * 0.95)
     x_max = df_pairs["ratio"].max() * 1.05
     x_range = np.linspace(x_min, x_max, 2000)
-    y_curve, _ = proximity_max_freq_gaussian_table(x_range, **params)
+    y_curve, _ = proximity_max_freq_gaussian(x_range, **params)
     mean_prox = np.mean(y_curve)
 
     pivot_vals = df_pairs.pivot(index="i", columns="j", values="prox_value") * 100
@@ -531,7 +529,7 @@ def new_plot_sequence_analysis(
 
     # === Histogramm ===
     ax4 = fig.add_subplot(gs[3:5, 1])
-    colors = {"Real": "blue", "expon": "orange", "uniform": "gray", "empirical": "green"}
+    colors = {"Real": "blue", "expon": "orange", "uniform": "gray"}
     bin_edges = np.linspace(0, 1, bins)
 
     ax4.hist(results["proximity_real"], bins=bin_edges, density=True, alpha=0.5, color="blue", label="Real")
@@ -565,7 +563,7 @@ def new_plot_sequence_analysis(
 
     # === Correlation: Distance vs. Proximity (Real) ===
     ax_corr = fig.add_subplot(gs[5:7, 1])
-    colors_corr = {"expon": "orange", "uniform": "gray", "empirical": "green"}
+    colors_corr = {"expon": "orange", "uniform": "gray"}
     for model, corr_vals in results["distance_corr_nulls"].items():
         color = colors_corr.get(model, "black")
         sns.histplot(corr_vals, bins=20, color=color, alpha=0.4, label=f"{model.capitalize()} Null", ax=ax_corr)
@@ -605,7 +603,7 @@ def new_plot_sequence_analysis(
 # =============================
 
 def compute_peak_significance_table(iois, params, num_null=200,
-                                    models=("expon", "uniform", "empirical"),
+                                    models=("expon", "uniform"),
                                     seed=42, source="", alpha=0.05):
     """
     Identifies significant proximity peaks in an IOI sequence by comparing real proximity scores
@@ -620,7 +618,7 @@ def compute_peak_significance_table(iois, params, num_null=200,
     triu_idx = np.triu_indices(n, k=1)
     ratios_real = np.maximum(iois[:, None], iois[None, :]) / np.minimum(iois[:, None], iois[None, :])
     ratios_real = ratios_real[triu_idx]
-    prox_real, best_frac_real = proximity_max_freq_gaussian_table(ratios_real, **params)
+    prox_real, best_frac_real = proximity_max_freq_gaussian(ratios_real, **params)
     threshold = params.get("threshold", 0.01)
 
     peak_labels = [f"{k}/{f}" if (k,f)!=(0,0) else "No Proximity" for k,f in best_frac_real]
@@ -639,7 +637,7 @@ def compute_peak_significance_table(iois, params, num_null=200,
         for sim_iois in sims:
             ratios_null = np.maximum(sim_iois[:, None], sim_iois[None, :]) / np.minimum(sim_iois[:, None], sim_iois[None, :])
             ratios_null = ratios_null[triu_idx]
-            prox_null, best_frac_null = proximity_max_freq_gaussian_table(ratios_null, **params)
+            prox_null, best_frac_null = proximity_max_freq_gaussian(ratios_null, **params)
             peak_labels_null = [f"{k}/{f}" if (k,f)!=(0,0) else "No Proximity" for k,f in best_frac_null]
             for peak in peaks:
                 vals = np.array([prox_null[i] if peak_labels_null[i]==peak else threshold for i in range(len(prox_null))])
@@ -683,7 +681,7 @@ def compute_peak_significance_table(iois, params, num_null=200,
         for sim_iois in sims:
             ratios_null = np.maximum(sim_iois[:, None], sim_iois[None, :]) / np.minimum(sim_iois[:, None], sim_iois[None, :])
             ratios_null = ratios_null[triu_idx]
-            prox_null, _ = proximity_max_freq_gaussian_table(ratios_null, **params)
+            prox_null, _ = proximity_max_freq_gaussian(ratios_null, **params)
             if valid.sum() > 1 and np.std(prox_null[valid]) > 1e-12:
                 corr_null, _ = pearsonr(distances[valid], prox_null[valid])
             else:
@@ -709,14 +707,14 @@ def compute_peak_significance_table(iois, params, num_null=200,
 
     return df[col_order], distance_corr_dict
 
-def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=("expon", "uniform", "empirical")):
+def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=("expon", "uniform"), seed=42):
     path = Path(path)
     """Analyzes a dataset of IOIs and identifies significant proximity peaks."""
 
     if path.is_file():
         df = pd.read_csv(path)
         iois = df["IOI"].dropna().values
-        return compute_peak_significance_table(iois, params, num_null=num_null, source=path.name, alpha=alpha, models=models)
+        return compute_peak_significance_table(iois, params, num_null=num_null, source=path.name, alpha=alpha, models=models, seed=seed)
     elif path.is_dir():
         all_peak_dfs = []
         all_distance_corr_dicts = []
@@ -725,7 +723,7 @@ def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=(
             df = pd.read_csv(file)
             iois = df["IOI"].dropna().values
             peak_df, dist_dict = compute_peak_significance_table(iois, params, num_null=num_null,
-                                                                source=file.name, alpha=alpha)
+                                                                source=file.name, alpha=alpha, models=models, seed=seed)
             if not peak_df.empty:
                 all_peak_dfs.append(peak_df)
                 all_distance_corr_dicts.append(dist_dict)
@@ -736,7 +734,7 @@ def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=(
         df_concat = pd.concat(all_peak_dfs, ignore_index=True)
         # --- Average distance-corr values ---
         distance_corr_keys = ["distance_corr_real", "distance_corr_real_p",
-                            "distance_corr_expon_p", "distance_corr_uniform_p", "distance_corr_empirical_p"]
+                            "distance_corr_expon_p", "distance_corr_uniform_p"]
 
         distance_corr_means = {}
         for key in distance_corr_keys:
@@ -748,15 +746,13 @@ def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=(
         for peak, g in grouped:
             row = {
                 "peak": peak,
-                f"significance_alpha: {alpha}": ", ".join([model for model in ["expon","uniform","empirical"]
+                f"significance_alpha: {alpha}": ", ".join([model for model in ["expon","uniform"]
                                                     if np.sum(g[f"{model}_pval"] < alpha) > len(g)/2]),
                 "mean_real": g["mean_real"].mean(),
                 "expon_mean_null": g["expon_mean_null"].mean(),
                 "expon_pval": g["expon_pval"].mean(),
                 "uniform_mean_null": g["uniform_mean_null"].mean(),
                 "uniform_pval": g["uniform_pval"].mean(),
-                "empirical_mean_null": g["empirical_mean_null"].mean(),
-                "empirical_pval": g["empirical_pval"].mean(),
                 "level": "dataset",
                 "source": path.name
             }
@@ -786,7 +782,7 @@ def summarize_results_table(df, distance_corr_dict=None, alpha=0.05):
         # --- Classification of peak ---
         peak = row["peak"]
         sig_models = []
-        for model in ["expon", "uniform", "empirical"]:
+        for model in ["expon", "uniform"]:
             pval = row.get(f"{model}_pval", np.nan)
             if not pd.isna(pval) and pval < alpha:
                 sig_models.append(f"True: {peak}: {model} ({pval:.4f})")
@@ -819,7 +815,7 @@ def summarize_results_table(df, distance_corr_dict=None, alpha=0.05):
 
         # test significance
         corr_sig_texts = []
-        for model in ["expon", "uniform", "empirical"]:
+        for model in ["expon", "uniform"]:
             pval = distance_corr_dict.get(f"distance_corr_{model}_p", np.nan)
             if not pd.isna(pval) and pval < alpha:
                 corr_sig_texts.append(f"True: {model} (p={pval:.4f})")
@@ -889,7 +885,7 @@ def plot_proximity_max_freq_gaussian(
     freq_sharpness_exp=0.5,
 ):
     x_vals = np.linspace(1, x_max + 0.5, 2000)
-    y_vals, _ = proximity_max_freq_gaussian_table(
+    y_vals, _ = proximity_max_freq_gaussian(
         x_vals,
         sharpness_base=sharpness_base,
         sharpness_growth=sharpness_growth,
