@@ -8,7 +8,7 @@ BASE_IOI_LIST = [0.4, 0.5, 0.6, 1.0]
 BEAT_COUNTS = [6, 20, 100] 
 JITTER_STD_LIST = [0.001, 0.005, 0.01, 0.05, 0.1]
 REPEATS = 10
-BASE_OUTPUT_DIR = 'data/theoretical_sequences_new'
+BASE_OUTPUT_DIR = 'data/theoretical_sequences'
 INITIAL_ONSET = 0.1
 
 # === Seed for reproducibility ===
