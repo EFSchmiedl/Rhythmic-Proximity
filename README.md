@@ -35,52 +35,51 @@ Processed CSV files containing IOIs from:
 
 For the functions to work each CSV file has to include at least one column `IOI` (inter-onset interval in milliseconds or seconds), which is used as input for the proximity analysis.
 
+#### 4) Single sequence analysis catalogue (`catalogue_pages/`)
+A set of "catalogue pages" computed by `catalogue.ipynb` of all sequences discussed in the paper.
+
 ---
 
 **theoretical Sequences:**
 *The following describes the theoretical sequences (computed via "test-sequences_final.py")*
 
-Isochronous:
-isochrony: Perfect isochrony; all IOIs are exactly 0.5 s.
-isochrony-jitter-0001: Gaussian jitter truncated to (+/- 0.4 s) with SD = 0.001 s added to each IOI.
-isochrony-jitter-0005: Gaussian jitter truncated to (+/- 0.4 s) with SD = 0.005 s added to each IOI.
-isochrony-jitter-0010: Gaussian jitter truncated to (+/- 0.4 s) with SD = 0.01 s added to each IOI.
-isochrony-jitter-0050: Gaussian jitter truncated to (+/- 0.4 s) with SD = 0.05 s added to each IOI.
-isochrony-jitter-0100: Gaussian jitter truncated to (+/- 0.4 s) with SD = 0.1 s added to each IOI.
-isochrony_drift: Gradual deceleration from 0.5 s to 1.0 s through linearly increasing IOIs based on an isochronous 0.5 s base, creating cumulative drift.
-Jittered (localized variability):
-jitter_start: truncated Gaussian jitter added only to the first third of IOIs.
-jitter_start_single: truncated Gaussian jitter added only to the first IOI.
-jitter_middle: truncated Gaussian jitter added only to the center third of IOIs.
-jitter_middle_single: truncated Gaussian jitter added only to the center IOI.
-jitter_end: truncated Gaussian jitter added only to the end third of IOIs.
-jitter_end_single: truncated Gaussian jitter added only to the last IOI.
-For every sequence type, copies and SDs for truncated Gaussian followed the same scheme as the Isochron sequences.
-Tempo Modulated:
-accelerando: Gradual acceleration through linearly decreasing IOIs from 0.75 s to 0.15 s.
-ritardando: Gradual deceleration through linearly increasing IOIs from 0.15 s to 0.75 s.
-Structured Variability:
-heterochrony-1-2: Alternating IOIs with a 1:2 ratio (e.g., 0.5 s, 1.0 s, 0.5 s...).
-heterochrony-1-3-2: Alternating IOIs with a 1:3:2 ratio (e.g., 0.5 s, 1.5 s, 1.0 s, 0.5 s...).
-heterochrony-1-4: Alternating IOIs with a 1:4 ratio (e.g., 0.5 s, 2.0 s, 0.5 s...).
-heterochrony-2-3: Alternating IOIs with a 2:3 ratio (e.g., 1.0 s, 1.5 s, 1.0 s...).
-heterochrony-triplet: Alternating IOIs with a 1:1:2 ratio (e.g., 0.5 s, 0.5 s, 1.0 s, 0.5 s...).
-heterochrony-irregular: Each IOI from an isochronous sequence was randomly multiplied by 1, 2 or 3 (e.g., 1.5 s, 1.5 s, 1.0 s, 0.5...).
+- Isochronous:
+  - isochrony: Perfect isochrony; all IOIs are exactly 0.5 s.
+  - isochrony-jitter-0001: Gaussian jitter truncated to (+/- 0.4 s) with SD = 0.001 s added to each IOI.
+  - isochrony-jitter-0005: Gaussian jitter truncated to (+/- 0.4 s) with SD = 0.005 s added to each IOI.
+  - isochrony-jitter-0010: Gaussian jitter truncated to (+/- 0.4 s) with SD = 0.01 s added to each IOI.
+  - isochrony-jitter-0050: Gaussian jitter truncated to (+/- 0.4 s) with SD = 0.05 s added to each IOI.
+  - isochrony-jitter-0100: Gaussian jitter truncated to (+/- 0.4 s) with SD = 0.1 s added to each IOI.
+  - isochrony_drift: Gradual deceleration from 0.5 s to 1.0 s through linearly increasing IOIs based on an isochronous 0.5 s base, creating cumulative drift.
 
+- Jittered (localized variability):
+  - jitter_start: truncated Gaussian jitter added only to the first third of IOIs.
+  - jitter_start_single: truncated Gaussian jitter added only to the first IOI.
+  - jitter_middle: truncated Gaussian jitter added only to the center third of IOIs.
+  - jitter_middle_single: truncated Gaussian jitter added only to the center IOI.
+  - jitter_end: truncated Gaussian jitter added only to the end third of IOIs.
+  - jitter_end_single: truncated Gaussian jitter added only to the last IOI.
+For every sequence type, copies and SDs for truncated Gaussian followed the same scheme as the Isochron sequences.
+
+- Tempo Modulated:
+  - accelerando: Gradual acceleration through linearly decreasing IOIs from 0.75 s to 0.15 s.
+  - ritardando: Gradual deceleration through linearly increasing IOIs from 0.15 s to 0.75 s.
+
+- Structured Variability:
+  - heterochrony-1-2: Alternating IOIs with a 1:2 ratio (e.g., 0.5 s, 1.0 s, 0.5 s...).
+  - heterochrony-1-3-2: Alternating IOIs with a 1:3:2 ratio (e.g., 0.5 s, 1.5 s, 1.0 s, 0.5 s...).
+  - heterochrony-1-4: Alternating IOIs with a 1:4 ratio (e.g., 0.5 s, 2.0 s, 0.5 s...).
+  - heterochrony-2-3: Alternating IOIs with a 2:3 ratio (e.g., 1.0 s, 1.5 s, 1.0 s...).
+  - heterochrony-triplet: Alternating IOIs with a 1:1:2 ratio (e.g., 0.5 s, 0.5 s, 1.0 s, 0.5 s...).
+  - heterochrony-irregular: Each IOI from an isochronous sequence was randomly multiplied by 1, 2 or 3 (e.g., 1.5 s, 1.5 s, 1.0 s, 0.5...).
 For every sequence type, a single exact copy and 10 copies each for every SD of  truncated Gaussian were generated.
 
-tempo_shift_no-jitter: an isochronous sequence is randomly divided in 2-4 parts. In each part, every IOI is multiplied by a predefined tempo factor i. e. a harmonic ratio of two differing numbers 1 to 4. 
-
-tempo_shift_onlyioi-jitter: an isochronous sequence is randomly divided in 2-4 parts. In each part, every IOI is multiplied by a predefined tempo factor i. e. a harmonic ratio of two differing numbers 1 to 4. Additionally, truncated Gaussian jitter was added to each IOI.
-
-tempo_shift_onlytempo-jitter: an isochronous sequence is randomly divided in 2-4 parts. In each part, every IOI is multiplied by a predefined tempo factor i. e. a harmonic ratio of two differing numbers 1 to 4. Additionally, tempo factors are jittered uniformly around 95%-105% of the exact ratio.
-
-tempo:shift_both-jitter: an isochronous sequence is randomly divided in 2-4 parts. In each part, every IOI is multiplied by a predefined tempo factor i. e. a harmonic ratio of two differing numbers 1 to 4. Additionally, tempo factors are jittered uniformly around 95%-105% of the exact ratio and truncated Gaussian jitter was added to each IOI.
-
+  - tempo_shift_no-jitter: an isochronous sequence is randomly divided in 2-4 parts. In each part, every IOI is multiplied by a predefined tempo factor i. e. a harmonic ratio of two differing numbers 1 to 4. 
+  - tempo_shift_onlyioi-jitter: an isochronous sequence is randomly divided in 2-4 parts. In each part, every IOI is multiplied by a predefined tempo factor i. e. a harmonic ratio of two differing numbers 1 to 4. Additionally, truncated Gaussian jitter was added to each IOI.
+  - tempo_shift_onlytempo-jitter: an isochronous sequence is randomly divided in 2-4 parts. In each part, every IOI is multiplied by a predefined tempo factor i. e. a harmonic ratio of two differing numbers 1 to 4. Additionally, tempo factors are jittered uniformly around 95%-105% of the exact ratio.
+  - tempo:shift_both-jitter: an isochronous sequence is randomly divided in 2-4 parts. In each part, every IOI is multiplied by a predefined tempo factor i. e. a harmonic ratio of two differing numbers 1 to 4. Additionally, tempo factors are jittered uniformly around 95%-105% of the exact ratio and truncated Gaussian jitter was added to each IOI.
 For every sequence type, 10 copies were created plus 10 copies each for every SD of truncated Gaussian when IOI-jitter was applied.
 
-*Random:*
-
-random_uniform: Fully randomized IOIs drawn uniformly between 0.1 s and 1.0 s.
-
-random_exponential: Fully randomized IOIs drawn from an exponential distribution truncated to IOIs between 0.1 s and 2.0 s.
+- Random:
+  - random_uniform: Fully randomized IOIs drawn uniformly between 0.1 s and 1.0 s.
+  - random_exponential: Fully randomized IOIs drawn from an exponential distribution truncated to IOIs between 0.1 s and 2.0 s.
