@@ -154,7 +154,7 @@ def build_pairwise_proximity_df(iois, params, threshold=0.01):
             i, j = divmod(idx, n)
             k_val, f_val = best_frac_flat[idx]
             frac = Fraction(k_val, f_val).limit_denominator()
-            peak_labels[i, j] = f"{frac.numerator}/{frac.denominator}"
+            peak_labels[i, j] = f"{frac.numerator}:{frac.denominator}"
 
     # --- DataFrame ---
     df_pairs = pd.DataFrame({
@@ -194,7 +194,7 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
     mean_real = np.mean(proximity_real)
 
     # -----------------------------
-    # Nullsequenzen erzeugen
+    # Compute Null Proximity-Scores
     # -----------------------------
     null_sequences = generate_null_sequences(iois, num_sequences=num_sequences,
                                              models=models, seed=seed)
@@ -239,7 +239,7 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
 
     # Calculate distance correlation for real data
     df_pairs["distance"] = np.abs(df_pairs["i"] - df_pairs["j"])
-    valid = df_pairs["i"] != df_pairs["j"]  # nur i != j
+    valid = df_pairs["i"] != df_pairs["j"]  # only i != j
     if valid.sum() > 0:
         distance_corr_real, distance_corr_real_p = pearsonr(
             df_pairs.loc[valid, "distance"], df_pairs.loc[valid, "prox_value"]
@@ -406,10 +406,11 @@ def new_plot_sequence_analysis(
     unique_labels = sorted(set(df_pairs["peak_label"]))
     tab10 = plt.cm.tab10.colors
     fixed_colors = {
-        "1/1": tab10[0], "2/1": tab10[1], "3/1": tab10[2], "4/1": tab10[3], "5/1": tab10[4],
-        "1/2": tab10[5], "3/2": tab10[6], "5/2": tab10[7], "1/3": tab10[8], "2/3": tab10[9],
-        "4/3": (0.5, 0.0, 0.5)
+        "1:1": tab10[0], "2:1": tab10[1], "3:1": tab10[2], "4:1": tab10[3], "5:1": tab10[4],
+        "3:2": tab10[6], "5:2": tab10[9], "7:2": tab10[7], "9:2": tab10[8], 
+        "4:3": tab10[5], "5:3": (0.5, 0.0, 0.5)
     }
+
     label_to_cmap = {}
     for label, color in fixed_colors.items():
         if label in unique_labels:
@@ -621,7 +622,7 @@ def compute_peak_significance_table(iois, params, num_null=200,
     prox_real, best_frac_real = proximity_max_freq_gaussian(ratios_real, **params)
     threshold = params.get("threshold", 0.01)
 
-    peak_labels = [f"{k}/{f}" if (k,f)!=(0,0) else "No Proximity" for k,f in best_frac_real]
+    peak_labels = [f"{k}:{f}" if (k,f)!=(0,0) else "No Proximity" for k,f in best_frac_real]
     peaks = sorted(set([p for p in peak_labels if p != "No Proximity"]))
 
     peak_real_scores = {
@@ -638,7 +639,7 @@ def compute_peak_significance_table(iois, params, num_null=200,
             ratios_null = np.maximum(sim_iois[:, None], sim_iois[None, :]) / np.minimum(sim_iois[:, None], sim_iois[None, :])
             ratios_null = ratios_null[triu_idx]
             prox_null, best_frac_null = proximity_max_freq_gaussian(ratios_null, **params)
-            peak_labels_null = [f"{k}/{f}" if (k,f)!=(0,0) else "No Proximity" for k,f in best_frac_null]
+            peak_labels_null = [f"{k}:{f}" if (k,f)!=(0,0) else "No Proximity" for k,f in best_frac_null]
             for peak in peaks:
                 vals = np.array([prox_null[i] if peak_labels_null[i]==peak else threshold for i in range(len(prox_null))])
                 null_scores[model][peak].append(np.mean(vals))
@@ -789,9 +790,9 @@ def summarize_results_table(df, distance_corr_dict=None, alpha=0.05):
         peak_sig_text = "\n".join(sig_models) if sig_models else "False"
 
         # --- Determine category ---
-        if peak == "1/1":
+        if peak == "1:1":
             category = "Isochrony"
-        elif peak.endswith("/1") and not peak.startswith("1/"):
+        elif peak.endswith(":1") and not peak.startswith("1:"):
             category = "Simple Heterochrony"
         else:
             category = "Complex Heterochrony"
