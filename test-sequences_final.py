@@ -7,12 +7,12 @@ from scipy.stats import truncnorm
 BASE_IOI_LIST = [0.4, 0.5, 0.6, 1.0]
 BEAT_COUNTS = [6, 20, 100] 
 JITTER_STD_LIST = [0.001, 0.005, 0.01, 0.05, 0.1]
-REPEATS = 10
+REPEATS = 100
 BASE_OUTPUT_DIR = 'data/theoretical_sequences'
 INITIAL_ONSET = 0.1
 
 # === Seed for reproducibility ===
-np.random.seed(42)
+np.random.seed(123)
 rng = np.random.default_rng()
 
 # === Heterochron Patterns ===
@@ -139,50 +139,46 @@ for base_ioi in BASE_IOI_LIST:
         save_sequence(base_ioi + np.linspace(0, 0.5, num_beats), base_ioi, num_beats, "isochrony_drift")
 
         # --- Tempo-Shifts (all Jitter-STD)
-        base_factors = [(1 / 2), (2 / 1),   
-                        (1 / 3), (3 / 1),    
-                        (1 / 4), (4 / 1),   
-                        (2 / 3), (3 / 2),
-                        (3 / 4), (4 / 3)]
-
         for std in JITTER_STD_LIST:
             label = f"{int(std * 1000):04d}"
+
             for i in range(REPEATS):
-                num_sections = np.random.randint(2, 5)
-                section_bounds = np.linspace(0, num_beats, num_sections + 1, dtype=int)
+                
+                # Random shift point (not at edges)
+                shift_point = np.random.randint(1, num_beats - 1)
 
-                # Both: Tempo-Jitter + IOI-Jitter
+                # --- Both: Tempo-Jitter + IOI-Jitter
                 iois = np.full(num_beats, base_ioi)
-                for s in range(num_sections):
-                    start, end = section_bounds[s], section_bounds[s + 1]
-                    factor = np.random.choice(base_factors) * np.random.uniform(0.95, 1.05)
-                    iois[start:end] = base_ioi * factor
+                factor = np.random.uniform(1/3, 3.0) * np.random.uniform(0.95, 1.05)
+                iois[shift_point:] = base_ioi * factor
                 iois += truncated_jitter(num_beats, std=std)
-                save_sequence(iois, base_ioi, num_beats, f"tempo_shift_both-jitter-{label}", i+1)
 
-                # Only Tempo-Jitter (±5% Variation on Tempo Change)
-                iois = np.full(num_beats, base_ioi)
-                for s in range(num_sections):
-                    start, end = section_bounds[s], section_bounds[s + 1]
-                    factor = np.random.choice(base_factors) * np.random.uniform(0.95, 1.05)
-                    iois[start:end] = base_ioi * factor
-                save_sequence(iois, base_ioi, num_beats, f"tempo_shift_onlytempo-jitter-5percent", i+1)
+                save_sequence(iois, base_ioi, num_beats,
+                            f"tempo_shift_both-jitter-{label}", i + 1)
 
-                # Only IOI-Jitter
+                # --- Only Tempo-Jitter (±5%)
                 iois = np.full(num_beats, base_ioi)
-                for s in range(num_sections):
-                    start, end = section_bounds[s], section_bounds[s + 1]
-                    factor = np.random.choice(base_factors)
-                    iois[start:end] = base_ioi * factor
+                factor = np.random.uniform(1/3, 3.0) * np.random.uniform(0.95, 1.05)
+                iois[shift_point:] = base_ioi * factor
+
+                save_sequence(iois, base_ioi, num_beats,
+                            "tempo_shift_onlytempo-jitter-5percent", i + 1)
+
+                # --- Only IOI-Jitter
+                iois = np.full(num_beats, base_ioi)
+                factor = np.random.uniform(1/3, 3.0)
+                iois[shift_point:] = base_ioi * factor
                 iois += truncated_jitter(num_beats, std=std)
-                save_sequence(iois, base_ioi, num_beats, f"tempo_shift_onlyioi-jitter-{label}", i+1)
 
-                # Exact Tempo-Shifts (no Jitter)
+                save_sequence(iois, base_ioi, num_beats,
+                            f"tempo_shift_onlyioi-jitter-{label}", i + 1)
+
+                # --- Exact Tempo-Shift (no jitter)
                 iois = np.full(num_beats, base_ioi)
-                for s in range(num_sections):
-                    start, end = section_bounds[s], section_bounds[s + 1]
-                    factor = np.random.choice(base_factors)
-                    iois[start:end] = base_ioi * factor
-                save_sequence(iois, base_ioi, num_beats, "tempo_shift_no-jitter", i+1)
+                factor = np.random.uniform(1/3, 3.0)
+                iois[shift_point:] = base_ioi * factor
 
+                save_sequence(iois, base_ioi, num_beats,
+                            "tempo_shift_no-jitter", i + 1)
+        
 print("\n--- All sequences successfully generated ---")
