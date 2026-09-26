@@ -29,17 +29,17 @@ param_sets = {
     1: dict(
     sharpness_base=2.0, sharpness_growth=0.0, decay=0.0,
     max_freq=1, r_max=1, weight_exponent=0.0, freq_sharpness_exp=0.0,
-    output_max=1.0, threshold=0.01
+    threshold=0.01
 ),
     2: dict(
     sharpness_base=6.0, sharpness_growth=0.0, decay=0.0,
     max_freq=1, r_max=5, weight_exponent=0.0, freq_sharpness_exp=0.0,
-    output_max=1.0, threshold=0.01
+    threshold=0.01
 ),
     3: dict(
     sharpness_base=10.0, sharpness_growth=0.0, decay=0.0,
     max_freq=2, r_max=5, weight_exponent=0.0, freq_sharpness_exp=1.0,
-    output_max=1.0, threshold=0.01
+    threshold=0.01
 )
 }
 
@@ -56,7 +56,6 @@ def proximity_max_freq_gaussian(
     r_max=None,
     weight_exponent=0.0,
     freq_sharpness_exp=0.0,
-    output_max=1.0,
     threshold=0.01,
 ):
     x = np.array(x, dtype=float)
@@ -85,11 +84,10 @@ def proximity_max_freq_gaussian(
 
     if result.max() > 0:
         result /= result.max()
-    result *= output_max
     result[result < threshold] = threshold
     return result, best_frac
 
-def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform", "empirical"), seed=42):
+def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform", "resampled"), seed=42):
     """
     Generates null sequences based on the given IOIs and selected null models.
 
@@ -101,7 +99,7 @@ def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform"
         Number of the null sequences to generate per model.
     models : tuple of str
         List of desired null models. Possible values:
-        ("expon", "uniform", "empirical")
+        ("expon", "uniform", "resampled")
     seed : int
         Random seed for reproducibility.
 
@@ -122,7 +120,7 @@ def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform"
             sims = rng.exponential(scale=mean_ioi, size=(num_sequences, n))
         elif model == "uniform":
             sims = rng.uniform(0.01, max_ioi, size=(num_sequences, n))
-        elif model == "empirical":
+        elif model == "resampled":
             sims = rng.choice(iois, size=(num_sequences, n), replace=True)
         else:
             raise ValueError(f"Unknown null model: {model}")
@@ -172,11 +170,11 @@ def build_pairwise_proximity_df(iois, params, threshold=0.01):
     
     return df_pairs, ratios, prox_mat
 
-def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "uniform", "empirical"),
+def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "uniform", "resampled"),
                              seed=42, bins=50, plot=True):
     """
     Assesses a single IOI sequence against selected null models
-    (e.g., Exponential, Uniform, Empirical) and creates histogram with
+    (e.g., Exponential, Uniform, Resampled) and creates histogram with
     mean, 95% quantiles, z-score, and p-value.
     """
     rng = np.random.default_rng(seed)
@@ -274,7 +272,7 @@ def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "
         import matplotlib.pyplot as plt
         import seaborn as sns
         plt.figure(figsize=(12, 6))
-        colors = {"Real": "blue", "expon": "orange", "uniform": "gray", "empirical": "green"}
+        colors = {"Real": "blue", "expon": "orange", "uniform": "gray", "resampled": "green"}
         all_nulls = np.concatenate([v for v in mean_values.values()])
         bin_edges = np.linspace(np.min(all_nulls), np.max(all_nulls), bins + 1)
 
@@ -325,7 +323,7 @@ def new_plot_sequence_analysis(
     filename,
     base_dir,
     param_choice=1,
-    null_models=("expon", "uniform", "empirical"),
+    null_models=("expon", "uniform", "resampled"),
     num_sequences=200,
     seed=42,
     bins=25,
@@ -354,7 +352,7 @@ def new_plot_sequence_analysis(
     param_choice : int
         Choice of parameter set (1, 2, or 3).
     null_models : tuple of str
-        Null models to use for comparison (e.g., ("expon", "uniform", "empirical")).
+        Null models to use for comparison (e.g., ("expon", "uniform", "resampled")).
     num_sequences : int
         Number of null sequences to generate per model.
     seed : int
@@ -452,7 +450,6 @@ def new_plot_sequence_analysis(
         f"PAIR_THRESHOLD: {params['threshold']}",
         f"Parameters: sharpness_base={params['sharpness_base']}, sharpness_growth={params['sharpness_growth']}, decay={params['decay']}",
         f"max_freq={params['max_freq']}, weight_exponent={params['weight_exponent']}, freq_sharpness_exp={params['freq_sharpness_exp']}",
-        f"output_max={params['output_max']}",
     ]
     info_lines.append(f"Mean Real: {res['mean_real']:.3f}")
     for model, vals in res.items():
@@ -532,7 +529,7 @@ def new_plot_sequence_analysis(
 
     # === Histogramm ===
     ax4 = fig.add_subplot(gs[3:5, 1])
-    colors = {"Real": "blue", "expon": "orange", "uniform": "gray", "empirical": "green"}
+    colors = {"Real": "blue", "expon": "orange", "uniform": "gray", "resampled": "green"}
     bin_edges = np.linspace(0, 1, bins)
 
     ax4.hist(results["proximity_real"], bins=bin_edges, density=True, alpha=0.5, color="blue", label="Real")
@@ -566,7 +563,7 @@ def new_plot_sequence_analysis(
 
     # === Correlation: Distance vs. Proximity (Real) ===
     ax_corr = fig.add_subplot(gs[5:7, 1])
-    colors_corr = {"expon": "orange", "uniform": "gray", "empirical": "green"}
+    colors_corr = {"expon": "orange", "uniform": "gray", "resampled": "green"}
     for model, corr_vals in results["distance_corr_nulls"].items():
         color = colors_corr.get(model, "black")
         sns.histplot(corr_vals, bins=20, color=color, alpha=0.4, label=f"{model.capitalize()} Null", ax=ax_corr)
@@ -606,7 +603,7 @@ def new_plot_sequence_analysis(
 # =============================
 
 def compute_peak_significance_table(iois, params, num_null=200,
-                                    models=("expon", "uniform", "empirical"),
+                                    models=("expon", "uniform", "resampled"),
                                     seed=42, source="", alpha=0.05):
     """
     Identifies significant proximity peaks in an IOI sequence by comparing real proximity scores
@@ -710,7 +707,7 @@ def compute_peak_significance_table(iois, params, num_null=200,
 
     return df[col_order], distance_corr_dict
 
-def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=("expon", "uniform", "empirical"), seed=42):
+def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=("expon", "uniform", "resampled"), seed=42):
     path = Path(path)
     """Analyzes a dataset of IOIs and identifies significant proximity peaks."""
 
@@ -738,7 +735,7 @@ def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=(
         # --- Average distance-corr values ---
         distance_corr_keys = ["distance_corr_real", "distance_corr_real_p",
                             "distance_corr_expon_p", "distance_corr_uniform_p",
-                            "distance_corr_empirical_p"]
+                            "distance_corr_resampled_p"]
 
         distance_corr_means = {}
         for key in distance_corr_keys:
@@ -750,15 +747,15 @@ def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=(
         for peak, g in grouped:
             row = {
                 "peak": peak,
-                f"significance_alpha: {alpha}": ", ".join([model for model in ["expon","uniform", "empirical"]
+                f"significance_alpha: {alpha}": ", ".join([model for model in ["expon","uniform", "resampled"]
                                                     if np.sum(g[f"{model}_pval"] < alpha) > len(g)/2]),
                 "mean_real": g["mean_real"].mean(),
                 "expon_mean_null": g["expon_mean_null"].mean(),
                 "expon_pval": g["expon_pval"].mean(),
                 "uniform_mean_null": g["uniform_mean_null"].mean(),
                 "uniform_pval": g["uniform_pval"].mean(),
-                "empirical_mean_null": g["empirical_mean_null"].mean(),
-                "empirical_pval": g["empirical_pval"].mean(),
+                "resampled_mean_null": g["resampled_mean_null"].mean(),
+                "resampled_pval": g["resampled_pval"].mean(),
                 "level": "dataset",
                 "source": path.name
             }
@@ -788,7 +785,7 @@ def summarize_results_table(df, distance_corr_dict=None, alpha=0.05):
         # --- Classification of peak ---
         peak = row["peak"]
         sig_models = []
-        for model in ["expon", "uniform", "empirical"]:
+        for model in ["expon", "uniform", "resampled"]:
             pval = row.get(f"{model}_pval", np.nan)
             if not pd.isna(pval) and pval < alpha:
                 sig_models.append(f"True: {peak}: {model} ({pval:.4f})")
@@ -821,7 +818,7 @@ def summarize_results_table(df, distance_corr_dict=None, alpha=0.05):
 
         # test significance
         corr_sig_texts = []
-        for model in ["expon", "uniform", "empirical"]:
+        for model in ["expon", "uniform", "resampled"]:
             pval = distance_corr_dict.get(f"distance_corr_{model}_p", np.nan)
             if not pd.isna(pval) and pval < alpha:
                 corr_sig_texts.append(f"True: {model} (p={pval:.4f})")
