@@ -1,3 +1,6 @@
+# This script can be used to generate 'theoretical' sequences with various properties for testing purposes. 
+# In the Configuration section, you can specify the base IOIs, beat counts, jitter levels, and heterochrony patterns etc. 
+# The generated sequences will be saved in CSV format in a structured directory.
 import numpy as np
 import pandas as pd
 import os
@@ -27,10 +30,14 @@ HETERO_PATTERNS = {
 
 # === Helper Functions ===
 def truncated_jitter(size, std=0.1, limit=0.4):
+    'Generate truncated normal distributed jitter values with specified standard deviation and limit.'
+    
     a, b = -limit / std, limit / std
     return truncnorm.rvs(a, b, scale=std, size=size)
 
 def save_sequence(iois, base_ioi, num_beats, condition, idx=None):
+    'Save the generated sequence to a CSV file with appropriate directory structure and naming.'
+
     onsets = np.insert(INITIAL_ONSET + np.cumsum(iois), 0, INITIAL_ONSET)
     iois_with_nan = np.append(iois, np.nan)
 
@@ -58,6 +65,10 @@ def save_sequence(iois, base_ioi, num_beats, condition, idx=None):
     df.to_csv(os.path.join(dir_path, filename), index=False)
 
 # === Main Loops ===
+
+# This loop iterates over all combinations of base IOIs and beat counts, 
+# generating sequences for each condition specified in the configuration.
+
 for base_ioi in BASE_IOI_LIST:
     for num_beats in BEAT_COUNTS:
         third = num_beats // 3

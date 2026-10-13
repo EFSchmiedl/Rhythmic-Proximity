@@ -25,6 +25,10 @@ from scipy.stats import gaussian_kde
 # 0) Parameter sets
 # =============================
 
+# These parameter sets are used for the proximity function.
+# Each set defines different characteristics of the proximity calculation, 
+# such as sharpness, decay, and frequency parameters.
+
 param_sets = {
     1: dict(
     sharpness_base=2.0, sharpness_growth=0.0, decay=0.0,
@@ -58,6 +62,53 @@ def proximity_max_freq_gaussian(
     freq_sharpness_exp=0.0,
     threshold=0.01,
 ):
+    """
+    Calculate proximity scores for positive IOI ratios using
+    a Gaussian-based model of rational-number relationships.
+
+    For each input ratio, the function evaluates Gaussian kernels
+    centered on candidate rational values k/f and retains the
+    highest weighted kernel response across the tested frequencies.
+
+    Parameters
+    ----------
+    x : array-like of float
+        Input IOI ratios. Values must be positive and finite.
+    sharpness_base : float, default=10.0
+        Base parameter controlling the width of the Gaussian kernels.
+    sharpness_growth : float, default=1.0
+        Exponent controlling how kernel width changes with numerator.
+    decay : float, default=0.1
+        Exponent controlling the decay of kernel weights with
+        increasing candidate ratio.
+    max_freq : int, default=4
+        Maximum denominator parameter f considered.
+    r_max : float or None, default=None
+        Upper bound for candidate rational values. If None,
+        the ceiling of the maximum input value is used.
+    weight_exponent : float, default=1.0
+        Exponent controlling the weight assigned to each frequency.
+    freq_sharpness_exp : float, default=1.0
+        Exponent controlling the frequency dependence of kernel
+        sharpness.
+    threshold : float, default=0.01
+        Minimum returned proximity score.
+
+    Returns
+    -------
+    result : numpy.ndarray
+        Proximity scores, normalized to the maximum score before
+        thresholding.
+    best_frac : list of tuple[int, int]
+        Numerator and denominator (k, f) of the candidate kernel
+        producing the highest response for each input value.
+
+    Notes
+    -----
+    The returned scores are relative model scores, not probabilities.
+    The threshold is applied after normalization and scaling.
+    """
+
     x = np.array(x, dtype=float)
     if r_max is None:
         r_max = int(np.ceil(np.max(x)))
@@ -82,8 +133,6 @@ def proximity_max_freq_gaussian(
         for idx in np.where(update_idx)[0]:
             best_frac[idx] = (int(k_vals[best_idx[idx]]), f)
 
-    if result.max() > 0:
-        result /= result.max()
     result[result < threshold] = threshold
     return result, best_frac
 
@@ -134,6 +183,8 @@ def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform"
 # =============================
 
 def build_pairwise_proximity_df(iois, params, threshold=0.01):
+    'Builds a DataFrame containing pairwise proximity values, ratios, and peak labels for a given IOI sequence.'
+    
     n = len(iois)
     
     # --- Ratio-Matrix ---
@@ -170,12 +221,29 @@ def build_pairwise_proximity_df(iois, params, threshold=0.01):
     
     return df_pairs, ratios, prox_mat
 
-def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "uniform", "resampled"),
-                             seed=42, bins=50, plot=True):
+def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "uniform", "resampled"), seed=42, bins=50, plot=True):
     """
     Assesses a single IOI sequence against selected null models
     (e.g., Exponential, Uniform, Resampled) and creates histogram with
     mean, 95% quantiles, z-score, and p-value.
+
+    Parameters
+    ----------
+    iois : array-like
+        Input-Inter-Onset-Interval-Sequence.
+    params : dict
+        Parameters for the proximity function.
+    num_sequences : int
+        Number of null sequences to generate per model.
+    models : tuple of str
+        List of desired null models. Possible values:
+        ("expon", "uniform", "resampled")
+    seed : int
+        Random seed for reproducibility.
+    bins : int
+        Number of bins for the histogram.
+    plot : bool
+        Whether to create a plot of the histogram.
     """
     rng = np.random.default_rng(seed)
     iois = np.asarray(iois, dtype=float)
@@ -370,14 +438,6 @@ def new_plot_sequence_analysis(
     save_dir : str or None
         Directory to save the figure if safe_fig is True.
     """
-
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    import numpy as np
-    import pandas as pd
-    from pathlib import Path
-    import matplotlib.gridspec as gridspec
-    from matplotlib.gridspec import GridSpecFromSubplotSpec
 
     # === Load Parameters and File ===
     path = Path(base_dir) / filename
@@ -608,6 +668,24 @@ def compute_peak_significance_table(iois, params, num_null=200,
     """
     Identifies significant proximity peaks in an IOI sequence by comparing real proximity scores
     against null models. Returns a DataFrame summarizing significant peaks.
+
+    Parameters
+    ----------
+    iois : array-like
+        Input-Inter-Onset-Interval-Sequence.
+    params : dict
+        Parameters for the proximity function.
+    num_null : int
+        Number of null sequences to generate per model.
+    models : tuple of str
+        List of desired null models. Possible values:
+        ("expon", "uniform", "resampled")
+    seed : int
+        Random seed for reproducibility.
+    source : str
+        Source identifier for the IOI sequence (e.g., filename).
+    alpha : float
+        Significance level for peak detection.
     """
     rng = np.random.default_rng(seed)
     iois = np.asarray(iois, dtype=float)
@@ -709,7 +787,11 @@ def compute_peak_significance_table(iois, params, num_null=200,
 
 def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=("expon", "uniform", "resampled"), seed=42):
     path = Path(path)
-    """Analyzes a dataset of IOIs and identifies significant proximity peaks."""
+    """
+    Analyzes a dataset of IOI sequences (from a CSV file or directory of CSV files) 
+    and computes peak significance tables for each sequence. 
+    Returns a combined DataFrame summarizing significant peaks across the dataset.
+    """
 
     if path.is_file():
         df = pd.read_csv(path)
@@ -887,6 +969,10 @@ def plot_proximity_max_freq_gaussian(
     weight_exponent=0.5,
     freq_sharpness_exp=0.5,
 ):
+    """
+    Plots the proximity function based on the provided parameters and displays its distribution.
+    """
+
     x_vals = np.linspace(1, r_max + 0.5, 2000)
     y_vals, _ = proximity_max_freq_gaussian(
         x_vals,
