@@ -29,17 +29,24 @@ from scipy.stats import gaussian_kde
 # Each set defines different characteristics of the proximity calculation, 
 # such as sharpness, decay, and frequency parameters.
 
+# The three parameter sets are visualized and described in the paper's supplementary materials (Figure S1).
+
 param_sets = {
+    # Designed to test for isochrony 
     1: dict(
     sharpness_base=2.0, sharpness_growth=0.0, decay=0.0,
     max_freq=1, r_max=1, weight_exponent=0.0, freq_sharpness_exp=0.0,
     threshold=0.01
 ),
+    # Designed to catch simple small integer ratios 
+    # (where one IOI duration is an integer multiple of the other). 
     2: dict(
     sharpness_base=6.0, sharpness_growth=0.0, decay=0.0,
     max_freq=1, r_max=5, weight_exponent=0.0, freq_sharpness_exp=0.0,
     threshold=0.01
 ),
+    # Designed for sequences with more complex small integer ratios, 
+    # as it can detect all ratios that result from division by 1 or 2. 
     3: dict(
     sharpness_base=10.0, sharpness_growth=0.0, decay=0.0,
     max_freq=2, r_max=5, weight_exponent=0.0, freq_sharpness_exp=1.0,
@@ -136,7 +143,7 @@ def proximity_max_freq_gaussian(
     result[result < threshold] = threshold
     return result, best_frac
 
-def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform", "resampled"), seed=42):
+def generate_null_sequences(iois, num_sequences=1000, models=("expon", "uniform", "resampled"), seed=123):
     """
     Generates null sequences based on the given IOIs and selected null models.
 
@@ -221,7 +228,7 @@ def build_pairwise_proximity_df(iois, params, threshold=0.01):
     
     return df_pairs, ratios, prox_mat
 
-def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "uniform", "resampled"), seed=42, bins=50, plot=True):
+def analyze_single_sequence(iois, params, num_sequences=1000, models=("expon", "uniform", "resampled"), seed=123, bins=50, plot=True):
     """
     Assesses a single IOI sequence against selected null models
     (e.g., Exponential, Uniform, Resampled) and creates histogram with
@@ -393,7 +400,7 @@ def new_plot_sequence_analysis(
     param_choice=1,
     null_models=("expon", "uniform", "resampled"),
     num_sequences=200,
-    seed=42,
+    seed=123,
     bins=25,
     top_k=5,
     figsize=(20, 28),
@@ -664,7 +671,7 @@ def new_plot_sequence_analysis(
 
 def compute_peak_significance_table(iois, params, num_null=200,
                                     models=("expon", "uniform", "resampled"),
-                                    seed=42, source="", alpha=0.05):
+                                    seed=123, source="", alpha=0.05):
     """
     Identifies significant proximity peaks in an IOI sequence by comparing real proximity scores
     against null models. Returns a DataFrame summarizing significant peaks.
@@ -785,7 +792,7 @@ def compute_peak_significance_table(iois, params, num_null=200,
 
     return df[col_order], distance_corr_dict
 
-def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=("expon", "uniform", "resampled"), seed=42):
+def analyze_dataset_peaks_table(path, params, num_null=200, alpha=0.05, models=("expon", "uniform", "resampled"), seed=123):
     path = Path(path)
     """
     Analyzes a dataset of IOI sequences (from a CSV file or directory of CSV files) 

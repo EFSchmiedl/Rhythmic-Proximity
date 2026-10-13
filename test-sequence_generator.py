@@ -15,8 +15,8 @@ BASE_OUTPUT_DIR = 'data/theoretical_sequences'
 INITIAL_ONSET = 0.1
 
 # === Seed for reproducibility ===
-np.random.seed(123)
-rng = np.random.default_rng()
+SEED = 123 # seed used for the dataset generation in the paper: 123
+rng = np.random.default_rng(SEED)
 
 # === Heterochron Patterns ===
 HETERO_PATTERNS = {
